@@ -31,49 +31,58 @@ class OpenTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="open_ticket_btn")
-    async def open_ticket(self, interaction: discord.Interaction):
-        # บอก Discord ล่วงหน้าว่าบอทกำลังทำงานอยู่ (แก้ปัญหาการโต้ตอบล้มเหลว)
-        await interaction.response.defer(ephemeral=True)
+    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v2")
+    async def open_ticket(self, interaction: discord.Interaction, button: Button):
+        # 1. ตอบรับ Discord ทันทีในมิลลิวินาทีแรก (กันการโต้ตอบล้มเหลว 100%)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception as e:
+            print(f"Defer Error: {e}")
 
         guild = interaction.guild
         user = interaction.user
+
+        if not guild:
+            await interaction.followup.send("คำสั่งนี้ใช้ได้เฉพาะในเซิร์ฟเวอร์ครับ", ephemeral=True)
+            return
+
+        channel_name = f"ticket-{user.name}".lower().replace(" ", "-")
         
-        # สร้างห้องตั๋วส่วนตัว
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        
-        channel_name = f"ticket-{user.name}"
         # เช็กว่ามีห้องเดิมอยู่แล้วหรือไม่
         existing_channel = discord.utils.get(guild.channels, name=channel_name)
         if existing_channel:
             await interaction.followup.send(f"คุณมีห้องตั๋วอยู่แล้วที่ {existing_channel.mention}", ephemeral=True)
             return
 
+        # ตั้งค่าสิทธิ์ห้องตั๋ว
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+
+        # ลองสร้างห้องตั๋ว
         try:
             ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
             await ticket_channel.send(f"สวัสดีครับ {user.mention} แจ้งรายละเอียดการเช่าคอมหรือติดต่อแอดมินในห้องนี้ได้เลยครับ!")
             await interaction.followup.send(f"สร้างห้องตั๋วเรียบร้อยแล้ว: {ticket_channel.mention}", ephemeral=True)
+            print(f"SUCCESS: สร้างห้อง {channel_name} ให้กับ {user.name} สำเร็จ!")
         except Exception as e:
-            await interaction.followup.send(f"เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
+            print(f"ERROR CREATE CHANNEL: {e}")
+            await interaction.followup.send(f"บอทไม่สามารถสร้างห้องได้ โปรดเช็กสิทธิ์ 'Administrator' หรือ 'Manage Channels': {e}", ephemeral=True)
 
 @bot.event
 async def on_ready():
-    bot.add_view(OpenTicketView()) # ทำให้ปุ่มใช้งานได้ตลอดเวลาแม้บอทรีสตาร์ต
+    bot.add_view(OpenTicketView())
     print(f'บอท {bot.user} ออนไลน์พร้อมใช้งานแล้ว!')
 
 @bot.command()
 async def ticket(ctx):
-    # ลบข้อความ !ticket
+    # ลบข้อความคำสั่ง !ticket
     try:
         await ctx.message.delete()
-    except discord.errors.Forbidden:
-        print("บอทไม่มีสิทธิ์ Manage Messages เลยลบข้อความไม่ได้")
     except Exception as e:
-        pass
+        print(f"Delete message error: {e}")
 
     embed = discord.Embed(
         title="❄️ ICE Cloud Gaming - ระบบเปิดตั๋ว",
@@ -90,4 +99,3 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-        
