@@ -9,7 +9,7 @@ from discord.ui import Button, View
 # --- 1. Web Server หลอก Render ให้บอทออนไลน์ตลอด 24 ชม. ---
 app = Flask('')
 
-@app.route('/')
+@app.route('/', methods=['GET', 'HEAD'])
 def home():
     return "Bot is running!"
 
