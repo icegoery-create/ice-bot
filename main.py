@@ -61,6 +61,14 @@ async def on_ready():
 
 @bot.command()
 async def ticket(ctx):
+    # --- เพิ่มคำสั่งลบข้อความ !ticket ที่นี่ ---
+    try:
+        await ctx.message.delete()
+    except discord.errors.Forbidden:
+        print("บอทไม่มีสิทธิ์ Manage Messages เลยลบข้อความไม่ได้")
+    except Exception as e:
+        pass
+
     embed = discord.Embed(
         title="❄️ ICE Cloud Gaming - ระบบเปิดตั๋ว",
         description="กดปุ่มด้านล่างเพื่อเปิดตั๋วติดต่อเช่าคอมหรือสอบถามข้อมูลครับ",
@@ -76,4 +84,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-        
+    
