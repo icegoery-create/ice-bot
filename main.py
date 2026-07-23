@@ -33,6 +33,9 @@ class OpenTicketView(View):
 
     @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="open_ticket_btn")
     async def open_ticket(self, interaction: discord.Interaction):
+        # บอก Discord ล่วงหน้าว่าบอทกำลังทำงานอยู่ (แก้ปัญหาการโต้ตอบล้มเหลว)
+        await interaction.response.defer(ephemeral=True)
+
         guild = interaction.guild
         user = interaction.user
         
@@ -47,12 +50,15 @@ class OpenTicketView(View):
         # เช็กว่ามีห้องเดิมอยู่แล้วหรือไม่
         existing_channel = discord.utils.get(guild.channels, name=channel_name)
         if existing_channel:
-            await interaction.response.send_message(f"คุณมีห้องตั๋วอยูแล้วที่ {existing_channel.mention}", ephemeral=True)
+            await interaction.followup.send(f"คุณมีห้องตั๋วอยู่แล้วที่ {existing_channel.mention}", ephemeral=True)
             return
 
-        ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
-        await ticket_channel.send(f"สวัสดีครับ {user.mention} แจ้งรายละเอียดการเช่าคอมหรือติดต่อแอดมินในห้องนี้ได้เลยครับ!")
-        await interaction.response.send_message(f"สร้างห้องตั๋วเรียบร้อยแล้ว: {ticket_channel.mention}", ephemeral=True)
+        try:
+            ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
+            await ticket_channel.send(f"สวัสดีครับ {user.mention} แจ้งรายละเอียดการเช่าคอมหรือติดต่อแอดมินในห้องนี้ได้เลยครับ!")
+            await interaction.followup.send(f"สร้างห้องตั๋วเรียบร้อยแล้ว: {ticket_channel.mention}", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -61,7 +67,7 @@ async def on_ready():
 
 @bot.command()
 async def ticket(ctx):
-    # --- เพิ่มคำสั่งลบข้อความ !ticket ที่นี่ ---
+    # ลบข้อความ !ticket
     try:
         await ctx.message.delete()
     except discord.errors.Forbidden:
@@ -84,4 +90,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-    
+        
