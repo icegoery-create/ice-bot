@@ -26,15 +26,20 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 3. ปุ่มกดปิดตั๋ว (Close Ticket) ภายในห้องตั๋ว ---
+# --- 3. ปุ่มกดปิดตั๋ว (Close Ticket) เฉพาะแอดมิน/เจ้าของร้าน ---
 class CloseTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🔒 ปิดตั๋ว", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
+    @discord.ui.button(label="🔒 ปิดตั๋ว", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn_v2")
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("🔒 กำลังปิดและลบห้องตั๋วนี้ภายใน 5 วินาที...")
-        await asyncio.sleep(5)
+        # เช็กว่าผู้กดมีสิทธิ์ Administrator หรือ Manage Channels หรือไม่
+        if not interaction.user.guild_permissions.administrator and not interaction.user.guild_permissions.manage_channels:
+            await interaction.response.send_message("❌ เฉพาะแอดมินหรือเจ้าของร้านเท่านั้นที่สามารถปิดตั๋วนี้ได้!", ephemeral=True)
+            return
+
+        await interaction.response.send_message("🔒 กำลังปิดและลบห้องตั๋วนี้ภายใน 3 วินาที...")
+        await asyncio.sleep(3)
         await interaction.channel.delete()
 
 # --- 4. ปุ่มกดเปิดตั๋วหน้าร้าน ---
@@ -42,7 +47,7 @@ class OpenTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v3")
+    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v4")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -96,7 +101,7 @@ class OpenTicketView(View):
 @bot.event
 async def on_ready():
     bot.add_view(OpenTicketView())
-    bot.add_view(CloseTicketView()) # ลงทะเบียนปุ่มปิดตั๋ว
+    bot.add_view(CloseTicketView())
     print(f'บอท {bot.user} ออนไลน์พร้อมใช้งานแล้ว!')
 
 @bot.command()
@@ -107,15 +112,15 @@ async def ticket(ctx):
     except Exception:
         pass
 
-    # --- การสร้าง Embed ใส่รูปภาพหน้าปกตั๋ว ---
+    # --- Embed หน้าร้าน ---
     embed = discord.Embed(
         title="❄️ ICE Cloud Gaming | บริการเช่าเล่นเกม",
         description="กดเปิดแชทเพื่อเริ่มขอ Player ID และ OTP หรือสอบถามข้อมูลเพิ่มเติมครับ",
         color=discord.Color.blue()
     )
     
-    # 📌 พี่สามารถนำ URL ลิงก์รูปภาพของพี่มาวางแทนที่ตรงนี้ได้เลยครับ!
-    embed.set_image(url="https://cdn.discordapp.com/attachments/1525449388212748328/1525711847817478215/5035230a3313e71c85e3a8c8e9d63174e547958b99d80015c52c3233eecbb7ab.png?ex=6a638aa2&is=6a623922&hm=3100db3f8c1af503c8df06a3cac534578b7b28415265f208d16d87797426a875&")
+    # 📌 วาง URL รูปภาพของพี่ตรงนี้ได้เลยครับ
+    embed.set_image(url="https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=1000&auto=format&fit=crop")
     embed.set_footer(text="Powered by ICE Cloud Gaming", icon_url=bot.user.avatar.url if bot.user.avatar else None)
 
     await ctx.send(embed=embed, view=OpenTicketView())
@@ -128,3 +133,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
+        
