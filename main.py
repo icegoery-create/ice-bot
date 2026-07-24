@@ -26,18 +26,25 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 3. ปุ่มกดเปิดตั๋วหน้าร้าน ---
+# --- 3. ปุ่มกดปิดตั๋ว (Close Ticket) ภายในห้องตั๋ว ---
+class CloseTicketView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🔒 ปิดตั๋ว", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
+    async def close_ticket(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_message("🔒 กำลังปิดและลบห้องตั๋วนี้ภายใน 5 วินาที...")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+# --- 4. ปุ่มกดเปิดตั๋วหน้าร้าน ---
 class OpenTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v2")
+    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v3")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
-        # 1. ตอบรับ Discord ทันทีในมิลลิวินาทีแรก (กันการโต้ตอบล้มเหลว 100%)
-        try:
-            await interaction.response.defer(ephemeral=True)
-        except Exception as e:
-            print(f"Defer Error: {e}")
+        await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
         user = interaction.user
@@ -48,32 +55,48 @@ class OpenTicketView(View):
 
         channel_name = f"ticket-{user.name}".lower().replace(" ", "-")
         
-        # เช็กว่ามีห้องเดิมอยู่แล้วหรือไม่
+        # 1. เช็กว่าลูกค้ามีห้องตั๋วเดิมอยู่แล้วหรือยัง
         existing_channel = discord.utils.get(guild.channels, name=channel_name)
         if existing_channel:
-            await interaction.followup.send(f"คุณมีห้องตั๋วอยู่แล้วที่ {existing_channel.mention}", ephemeral=True)
+            await interaction.followup.send(f"คุณมีห้องตั๋วอยู่แล้วที่ {existing_channel.mention} โปรดตรวจสอบ", ephemeral=True)
             return
 
-        # ตั้งค่าสิทธิ์ห้องตั๋ว
+        # 2. ตั้งค่าสิทธิ์ความเป็นส่วนตัว (เฉพาะลูกค้า + แอดมิน + บอท ที่เห็น)
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channel=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True)
         }
 
-        # ลองสร้างห้องตั๋ว
+        # หาหมวดหมู่ (Category) ของช่องปัจจุบันเพื่อเอาห้องตั๋วไปวางไว้ในหมวดหมู่เดียวกัน
+        category = interaction.channel.category
+
         try:
-            ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
-            await ticket_channel.send(f"สวัสดีครับ {user.mention} แจ้งรายละเอียดการเช่าคอมหรือติดต่อแอดมินในห้องนี้ได้เลยครับ!")
+            # 3. สร้างห้องตั๋วในหมวดหมู่ "จุดบริการเช่าคอม"
+            ticket_channel = await guild.create_text_channel(
+                name=channel_name, 
+                overwrites=overwrites,
+                category=category
+            )
+
+            # ข้อความต้อนรับ + ปุ่มปิดตั๋วภายในห้องใหม่
+            embed = discord.Embed(
+                title="❄️ ICE Cloud Gaming - ยินดีต้อนรับ",
+                description=f"สวัสดีครับ {user.mention}\nกรุณาแจ้งรายละเอียดการเช่าคอม หรือพิมพ์ข้อความทิ้งไว้ แอดมินจะรีบมาตอบกลับครับ!",
+                color=discord.Color.green()
+            )
+            await ticket_channel.send(content=f"{user.mention}", embed=embed, view=CloseTicketView())
+            
             await interaction.followup.send(f"สร้างห้องตั๋วเรียบร้อยแล้ว: {ticket_channel.mention}", ephemeral=True)
-            print(f"SUCCESS: สร้างห้อง {channel_name} ให้กับ {user.name} สำเร็จ!")
+
         except Exception as e:
             print(f"ERROR CREATE CHANNEL: {e}")
-            await interaction.followup.send(f"บอทไม่สามารถสร้างห้องได้ โปรดเช็กสิทธิ์ 'Administrator' หรือ 'Manage Channels': {e}", ephemeral=True)
+            await interaction.followup.send(f"เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
 
 @bot.event
 async def on_ready():
     bot.add_view(OpenTicketView())
+    bot.add_view(CloseTicketView()) # ลงทะเบียนปุ่มปิดตั๋ว
     print(f'บอท {bot.user} ออนไลน์พร้อมใช้งานแล้ว!')
 
 @bot.command()
@@ -81,17 +104,23 @@ async def ticket(ctx):
     # ลบข้อความคำสั่ง !ticket
     try:
         await ctx.message.delete()
-    except Exception as e:
-        print(f"Delete message error: {e}")
+    except Exception:
+        pass
 
+    # --- การสร้าง Embed ใส่รูปภาพหน้าปกตั๋ว ---
     embed = discord.Embed(
-        title="❄️ ICE Cloud Gaming - ระบบเปิดตั๋ว",
-        description="กดปุ่มด้านล่างเพื่อเปิดตั๋วติดต่อเช่าคอมหรือสอบถามข้อมูลครับ",
+        title="❄️ ICE Cloud Gaming | บริการเช่าเล่นเกม",
+        description="กดเปิดแชทเพื่อเริ่มขอ Player ID และ OTP หรือสอบถามข้อมูลเพิ่มเติมครับ",
         color=discord.Color.blue()
     )
+    
+    # 📌 พี่สามารถนำ URL ลิงก์รูปภาพของพี่มาวางแทนที่ตรงนี้ได้เลยครับ!
+    embed.set_image(url="https://cdn.discordapp.com/attachments/1525449388212748328/1525711847817478215/5035230a3313e71c85e3a8c8e9d63174e547958b99d80015c52c3233eecbb7ab.png?ex=6a638aa2&is=6a623922&hm=3100db3f8c1af503c8df06a3cac534578b7b28415265f208d16d87797426a875&")
+    embed.set_footer(text="Powered by ICE Cloud Gaming", icon_url=bot.user.avatar.url if bot.user.avatar else None)
+
     await ctx.send(embed=embed, view=OpenTicketView())
 
-# --- 4. สั่งรันบอท ---
+# --- 5. สั่งรันบอท ---
 if __name__ == "__main__":
     keep_alive()
     token = os.environ.get("DISCORD_TOKEN")
