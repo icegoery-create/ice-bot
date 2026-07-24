@@ -120,7 +120,7 @@ async def ticket(ctx):
     )
     
     # 📌 วาง URL รูปภาพของพี่ตรงนี้ได้เลยครับ
-    embed.set_image(url="https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=1000&auto=format&fit=crop")
+    embed.set_image(url="https://cdn.discordapp.com/attachments/1525449388212748328/1525711847817478215/5035230a3313e71c85e3a8c8e9d63174e547958b99d80015c52c3233eecbb7ab.png?ex=6a638aa2&is=6a623922&hm=3100db3f8c1af503c8df06a3cac534578b7b28415265f208d16d87797426a875&")
     embed.set_footer(text="Powered by ICE Cloud Gaming", icon_url=bot.user.avatar.url if bot.user.avatar else None)
 
     await ctx.send(embed=embed, view=OpenTicketView())
