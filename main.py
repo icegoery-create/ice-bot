@@ -47,7 +47,7 @@ class OpenTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v6")
+    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v8")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -62,10 +62,10 @@ class OpenTicketView(View):
         display_name = user.display_name.lower().replace(" ", "-")
         channel_name = f"ห้องตั๋วเช่าเกม-{display_name}"
         
-        # 1. เช็กว่าลูกค้ามีห้องตั๋วเดิมอยู่แล้วหรือยัง (ขึ้นบรรทัดใหม่ตรงลิงก์)
+        # 1. เช็กว่าลูกค้ามีห้องตั๋วเดิมอยู่แล้วหรือยัง
         existing_channel = discord.utils.get(guild.channels, name=channel_name)
         if existing_channel:
-            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน 👉🏻\n{existing_channel.mention}", ephemeral=True)
+            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน /n👉🏻{existing_channel.mention}", ephemeral=True)
             return
 
         # 2. ตั้งค่าสิทธิ์ความเป็นส่วนตัว (เฉพาะลูกค้า + แอดมิน + บอท ที่เห็น)
@@ -75,7 +75,7 @@ class OpenTicketView(View):
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True)
         }
 
-        # หาหมวดหมู่ (Category) ของช่องปัจจุบันเพื่อเอาห้องตั๋วไปวางไว้ในหมวดหมู่เดียวกัน
+        # หาหมวดหมู่ (Category) ของช่องปัจจุบัน
         category = interaction.channel.category
 
         try:
@@ -86,16 +86,21 @@ class OpenTicketView(View):
                 category=category
             )
 
-            # ข้อความต้อนรับ + ปุ่มปิดตั๋วภายในห้องใหม่
+            # 📌 [ตั้งค่าตรงนี้] ใส่ ID ยศเจ้าของร้าน/แอดมิน ที่ต้องการให้บอทแท็กเรียก
+            role_id = "1524631721641771050"  # <--- เปลี่ยนเลขในเครื่องหมายคำพูดนี้เป็น ID ยศของพี่
+            role_mention = f"<@&{role_id}>"
+
+            # ข้อความต้อนรับ + แท็กยศเจ้าของร้าน + ปุ่มปิดตั๋วภายในห้องใหม่
             embed = discord.Embed(
                 title="❄️ ICE Cloud Gaming - ยินดีต้อนรับ",
-                description=f"สวัสดีครับ {user.mention}\nกรุณาแจ้งรายละเอียดการเช่าคอม หรือพิมพ์ข้อความทิ้งไว้ แอดมินจะรีบมาตอบกลับครับ!",
+                description=f"กรุณารอเจ้าของร้านสักครู่ ถ้ามีคำถามอะไรให้พิมพ์ทิ้งไว้ เจ้าของร้านจะรีบมาตอบครับ!",
                 color=discord.Color.green()
             )
-            await ticket_channel.send(content=f"{user.mention}", embed=embed, view=CloseTicketView())
             
-            # ขึ้นบรรทัดใหม่ตามภาพ
-            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว 👉🏻\n{ticket_channel.mention} 👈🏻คลิกที่นี่เพื่อใช้งานห้อง", ephemeral=True)
+            # ส่งข้อความพร้อมแท็กยศออกไป
+            await ticket_channel.send(content=f"{role_mention}", embed=embed, view=CloseTicketView())
+            
+            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว /nคลิกที่นี่เพื่อใช้งานห้อง/n👉🏻{ticket_channel.mention} ", ephemeral=True)
 
         except Exception as e:
             print(f"ERROR CREATE CHANNEL: {e}")
@@ -135,4 +140,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-            
+        
