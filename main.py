@@ -65,7 +65,7 @@ class OpenTicketView(View):
         # 1. เช็กว่าลูกค้ามีห้องตั๋วเดิมอยู่แล้วหรือยัง
         existing_channel = discord.utils.get(guild.channels, name=channel_name)
         if existing_channel:
-            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน /n👉🏻{existing_channel.mention}", ephemeral=True)
+            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน \n👉🏻{existing_channel.mention}", ephemeral=True)
             return
 
         # 2. ตั้งค่าสิทธิ์ความเป็นส่วนตัว (เฉพาะลูกค้า + แอดมิน + บอท ที่เห็น)
@@ -100,7 +100,7 @@ class OpenTicketView(View):
             # ส่งข้อความพร้อมแท็กยศออกไป
             await ticket_channel.send(content=f"{role_mention}", embed=embed, view=CloseTicketView())
             
-            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว /nคลิกที่นี่เพื่อใช้งานห้อง/n👉🏻{ticket_channel.mention} ", ephemeral=True)
+            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว \nคลิกที่นี่เพื่อใช้งานห้อง\n👉🏻{ticket_channel.mention} ", ephemeral=True)
 
         except Exception as e:
             print(f"ERROR CREATE CHANNEL: {e}")
