@@ -47,7 +47,7 @@ class OpenTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v5")
+    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v6")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -62,10 +62,10 @@ class OpenTicketView(View):
         display_name = user.display_name.lower().replace(" ", "-")
         channel_name = f"ห้องตั๋วเช่าเกม-{display_name}"
         
-        # 1. เช็กว่าลูกค้ามีห้องตั๋วเดิมอยู่แล้วหรือยัง
+        # 1. เช็กว่าลูกค้ามีห้องตั๋วเดิมอยู่แล้วหรือยัง (ขึ้นบรรทัดใหม่ตรงลิงก์)
         existing_channel = discord.utils.get(guild.channels, name=channel_name)
         if existing_channel:
-            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน👉🏻 {existing_channel.mention}", ephemeral=True)
+            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน 👉🏻\n{existing_channel.mention}", ephemeral=True)
             return
 
         # 2. ตั้งค่าสิทธิ์ความเป็นส่วนตัว (เฉพาะลูกค้า + แอดมิน + บอท ที่เห็น)
@@ -94,7 +94,8 @@ class OpenTicketView(View):
             )
             await ticket_channel.send(content=f"{user.mention}", embed=embed, view=CloseTicketView())
             
-            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว {ticket_channel.mention} 👈🏻คลิกที่นี่เพื่อใช้งานห้อง", ephemeral=True)
+            # ขึ้นบรรทัดใหม่ตามภาพ
+            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว 👉🏻\n{ticket_channel.mention} 👈🏻คลิกที่นี่เพื่อใช้งานห้อง", ephemeral=True)
 
         except Exception as e:
             print(f"ERROR CREATE CHANNEL: {e}")
@@ -121,7 +122,6 @@ async def ticket(ctx):
         color=discord.Color.blue()
     )
     
-    # URL รูปภาพตรงตามที่ส่งมา
     embed.set_image(url="https://cdn.discordapp.com/attachments/1525449388212748328/1525711847817478215/5035230a3313e71c85e3a8c8e9d63174e547958b99d80015c52c3233eecbb7ab.png?ex=6a638aa2&is=6a623922&hm=3100db3f8c1af503c8df06a3cac534578b7b28415265f208d16d87797426a875&")
     embed.set_footer(text="Powered by ICE Cloud Gaming", icon_url=bot.user.avatar.url if bot.user.avatar else None)
 
@@ -135,4 +135,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-        
+            
