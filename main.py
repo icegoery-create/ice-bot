@@ -24,16 +24,43 @@ def keep_alive():
 # --- 2. ตั้งค่า Intent และ Bot ---
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True # เปิดใช้งาน Intent สมาชิกเพื่อตรวจจับการเข้าเซิร์ฟเวอร์/ให้ยศ
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 3. ปุ่มกดปิดตั๋ว (Close Ticket) เฉพาะแอดมิน/เจ้าของร้าน ---
+# --- 3. ปุ่มกดรับยศ (Verification View) ---
+class VerifyView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="✅ รับยศลูกค้า", style=discord.ButtonStyle.success, custom_id="verify_role_btn")
+    async def verify_role(self, interaction: discord.Interaction, button: Button):
+        role_id = 1530869786169442426  # ID ยศลูกค้าของพี่
+        role = interaction.guild.get_role(role_id)
+
+        if not role:
+            await interaction.response.send_message("❌ ไม่พบยศนี้ในระบบ กรุณาติดต่อแอดมิน", ephemeral=True)
+            return
+
+        # ตรวจสอบว่ามีรอยส์อยู่แล้วหรือยัง
+        if role in interaction.user.roles:
+            await interaction.response.send_message("⚠️ คุณได้รับยศลูกค้าเรียบร้อยแล้วครับ!", ephemeral=True)
+            return
+
+        # ทำการเพิ่มยศให้สมาชิก
+        try:
+            await interaction.user.add_roles(role)
+            await interaction.response.send_message("🎉 ยืนยันตัวตนสำเร็จ! ปลดล็อกห้องทั้งหมดเรียบร้อยแล้วครับ", ephemeral=True)
+        except Exception as e:
+            print(f"Error assigning role: {e}")
+            await interaction.response.send_message("❌ เกิดข้อผิดพลาดในการมอบยศ กรุณาแจ้งแอดมิน", ephemeral=True)
+
+# --- 4. ปุ่มกดปิดตั๋ว (Close Ticket) เฉพาะแอดมิน/เจ้าของร้าน ---
 class CloseTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="🔒 ปิดตั๋ว", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn_v2")
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        # เช็กว่าผู้กดมีสิทธิ์ Administrator หรือ Manage Channels หรือไม่
         if not interaction.user.guild_permissions.administrator and not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("❌ เฉพาะแอดมินหรือเจ้าของร้านเท่านั้นที่สามารถปิดตั๋วนี้ได้!", ephemeral=True)
             return
@@ -42,12 +69,12 @@ class CloseTicketView(View):
         await asyncio.sleep(3)
         await interaction.channel.delete()
 
-# --- 4. ปุ่มกดเปิดตั๋วหน้าร้าน ---
+# --- 5. ปุ่มกดเปิดตั๋วหน้าร้าน ---
 class OpenTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v8")
+    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v9")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -58,49 +85,40 @@ class OpenTicketView(View):
             await interaction.followup.send("คำสั่งนี้ใช้ได้เฉพาะในเซิร์ฟเวอร์ครับ", ephemeral=True)
             return
 
-        # ใช้ชื่อแสดงผล (display_name) แทน username
         display_name = user.display_name.lower().replace(" ", "-")
         channel_name = f"ห้องตั๋วเช่าเกม-{display_name}"
         
-        # 1. เช็กว่าลูกค้ามีห้องตั๋วเดิมอยู่แล้วหรือยัง
         existing_channel = discord.utils.get(guild.channels, name=channel_name)
         if existing_channel:
-            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน \n👉🏻{existing_channel.mention}", ephemeral=True)
+            await interaction.followup.send(f"คุณมีช่องตั๋วอยู่แล้วโปรดคลิกที่นี่เพื่อใช้งาน 👉🏻\n{existing_channel.mention}", ephemeral=True)
             return
 
-        # 2. ตั้งค่าสิทธิ์ความเป็นส่วนตัว (เฉพาะลูกค้า + แอดมิน + บอท ที่เห็น)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channel=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True)
         }
 
-        # หาหมวดหมู่ (Category) ของช่องปัจจุบัน
         category = interaction.channel.category
 
         try:
-            # 3. สร้างห้องตั๋วในหมวดหมู่เดียวกับช่องเปิดตั๋ว
             ticket_channel = await guild.create_text_channel(
                 name=channel_name, 
                 overwrites=overwrites,
                 category=category
             )
 
-            # 📌 [ตั้งค่าตรงนี้] ใส่ ID ยศเจ้าของร้าน/แอดมิน ที่ต้องการให้บอทแท็กเรียก
-            role_id = "1524631721641771050"  # <--- เปลี่ยนเลขในเครื่องหมายคำพูดนี้เป็น ID ยศของพี่
-            role_mention = f"<@&{role_id}>"
+            role_id_admin = "1524631721641771050"
+            role_mention = f"<@&{role_id_admin}>"
 
-            # ข้อความต้อนรับ + แท็กยศเจ้าของร้าน + ปุ่มปิดตั๋วภายในห้องใหม่
             embed = discord.Embed(
                 title="❄️ ICE Cloud Gaming - ยินดีต้อนรับ",
-                description=f"กรุณารอเจ้าของร้านสักครู่ ถ้ามีคำถามอะไรให้พิมพ์ทิ้งไว้ เจ้าของร้านจะรีบมาตอบครับ!",
+                description=f"กรุณารอเจ้าของร้านสักครู่ {role_mention} ถ้ามีคำถามอะไรให้พิมพ์ทิ้งไว้ เจ้าของร้านจะรีบมาตอบครับ!",
                 color=discord.Color.green()
             )
             
-            # ส่งข้อความพร้อมแท็กยศออกไป
             await ticket_channel.send(content=f"{role_mention}", embed=embed, view=CloseTicketView())
-            
-            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว \nคลิกที่นี่เพื่อใช้งานห้อง\n👉🏻{ticket_channel.mention} ", ephemeral=True)
+            await interaction.followup.send(f"สร้างตั๋วเช่าเกมเรียบร้อยแล้ว\nคลิกที่นี่เพื่อใช้งานห้อง\n👉🏻{ticket_channel.mention}", ephemeral=True)
 
         except Exception as e:
             print(f"ERROR CREATE CHANNEL: {e}")
@@ -110,17 +128,46 @@ class OpenTicketView(View):
 async def on_ready():
     bot.add_view(OpenTicketView())
     bot.add_view(CloseTicketView())
+    bot.add_view(VerifyView()) # ลงทะเบียนปุ่มรับยศให้อยู่ถาวร
     print(f'บอท {bot.user} ออนไลน์พร้อมใช้งานแล้ว!')
+
+# --- 6. ระบบตรวจจับการรับยศ เพื่อส่งข้อความต้อนรับ ---
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    role_id = 1530869786169442426  # ID ยศลูกค้า
+    welcome_channel_id = 1524635764556697680  # ID ห้องยินดีต้อนรับ
+
+    role = after.guild.get_role(role_id)
+    if not role:
+        return
+
+    # เช็กว่าตอนแรกยังไม่มี แต่ตอนนี้ได้ยศนี้แล้ว
+    if role not in before.roles and role in after.roles:
+        welcome_channel = after.guild.get_channel(welcome_channel_id)
+        if welcome_channel:
+            # สร้าง Embed ต้อนรับพร้อมรูปโปรไฟล์ลูกค้า (Thumbnail)
+            embed = discord.Embed(
+                title="✨ สมาชิกใหม่รับยศสำเร็จ!",
+                description=f"ยินดีต้อนรับคุณ **{after.display_name}** ลูกค้าใหม่เข้าสู่เซิร์ฟเวอร์ ICE Cloud Gaming! 🎮\n\nหากต้องการเช่าเกมหรือสอบถามข้อมูล สามารถเปิดตั๋วติดต่อแอดมินได้เลยนะครับ ขอให้สนุกกับการเล่นเกมครับ!",
+                color=discord.Color.blue()
+            )
+            # ดึงรูปโปรไฟล์ลูกค้ามาแปะมุมขวาบน
+            if after.avatar:
+                embed.set_thumbnail(url=after.avatar.url)
+            else:
+                embed.set_thumbnail(url=after.default_avatar.url)
+
+            embed.set_footer(text="ICE Cloud Gaming Community", icon_url=after.guild.icon.url if after.guild.icon else None)
+
+            await welcome_channel.send(content=f"{after.mention}", embed=embed)
 
 @bot.command()
 async def ticket(ctx):
-    # ลบข้อความคำสั่ง !ticket
     try:
         await ctx.message.delete()
     except Exception:
         pass
 
-    # --- Embed หน้าร้าน ---
     embed = discord.Embed(
         title="❄️ ICE Cloud Gaming | บริการเช่าเล่นเกม",
         description="กดเปิดแชทเพื่อเริ่มขอ Player ID และ OTP หรือสอบถามข้อมูลเพิ่มเติมครับ",
@@ -132,7 +179,23 @@ async def ticket(ctx):
 
     await ctx.send(embed=embed, view=OpenTicketView())
 
-# --- 5. สั่งรันบอท ---
+# --- คำสั่งสำหรับสร้างปุ่มรับยศในห้อง #รับยศ (พิมพ์ครั้งเดียวแล้วลบได้) ---
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setupverify(ctx):
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
+    embed = discord.Embed(
+        title="🛡️ ยืนยันตัวตนเพื่อเข้าสู่เซิร์ฟเวอร์",
+        description="กรุณากดปุ่ม **'✅ รับยศลูกค้า'** ด้านล่าง เพื่อปลดล็อกช่องพูดคุยและบริการทั้งหมดของ ICE Cloud Gaming ครับ!",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed, view=VerifyView())
+
+# --- 7. สั่งรันบอท ---
 if __name__ == "__main__":
     keep_alive()
     token = os.environ.get("DISCORD_TOKEN")
@@ -140,4 +203,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-        
+    
