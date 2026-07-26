@@ -71,12 +71,10 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
     async def on_submit(self, interaction: discord.Interaction):
         pid = self.player_id_input.value.strip()
         
-        # เซฟลงฐานข้อมูลทันที
         user_id_str = str(self.target_user_id)
         player_db[user_id_str] = pid
         save_data(player_db)
         
-        # เก็บลงตัวแปรชั่วคราวเผื่อส่งเข้าช่องบันทึกข้อมูลตอนปิดตั๋ว
         temp_ticket_data[interaction.channel_id] = {
             "user_id": self.target_user_id,
             "player_id": pid
@@ -453,14 +451,11 @@ async def reset_data(ctx, topic: str = None, scope: str = None):
     except Exception:
         pass
 
-    # ตรวจสอบว่าพิมพ์คำสั่งถูกต้องหรือไม่ (!Reset id all)
     if topic and topic.lower() == "id" and scope and scope.lower() == "all":
-        # 1. ล้างข้อมูลในแรมและไฟล์ JSON
         player_db.clear()
         temp_ticket_data.clear()
         save_data(player_db)
 
-        # 2. ล้างข้อความในช่อง #บันทึกข้อมูลลูกค้า
         log_channel = ctx.guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
             try:
