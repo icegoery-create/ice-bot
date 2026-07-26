@@ -85,13 +85,12 @@ class AdminSetIDView(View):
         super().__init__(timeout=None)
         self.target_user_id = target_user_id
 
-    @discord.ui.button(label="📝 กรอก Player ID ให้ลูกค้า", style=discord.ButtonStyle.success, custom_id="admin_set_id_btn_v2")
+    @discord.ui.button(label="📝 กรอก Player ID ให้ลูกค้า", style=discord.ButtonStyle.success, custom_id="admin_set_id_btn_v3")
     async def set_id(self, interaction: discord.Interaction, button: Button):
         if not interaction.user.guild_permissions.administrator and not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("❌ เฉพาะแอดมินหรือเจ้าของร้านเท่านั้นที่กดปุ่มนี้ได้!", ephemeral=True)
             return
 
-        # ถ้าไม่มีการส่ง target_user_id มา ให้ดึงจากผู้เปิดตั๋วในช่องชั่วคราวหรือคนที่อยู่ในห้อง
         user_id = self.target_user_id
         if not user_id and interaction.channel_id in temp_ticket_data:
             user_id = temp_ticket_data[interaction.channel_id].get("user_id")
@@ -106,33 +105,37 @@ class TicketTopicView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="ขอPlayer ID", style=discord.ButtonStyle.primary, custom_id="topic_player_id_v2")
+    @discord.ui.button(label="ขอPlayer ID", style=discord.ButtonStyle.primary, custom_id="topic_player_id_v3")
     async def topic_player_id(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.defer()
-
+        # ล็อกการกดซ้ำ
+        for item in self.children:
+            item.disabled = True
+        
         role_mention = f"<@&{ADMIN_ROLE_ID}>"
         embed = discord.Embed(
             title="🎮 หมวดหมู่: ขอ Player ID / เช่าเกม",
-            description=f"กรุณารอเจ้าของร้านสักครู่ {role_mention}\nเจ้าของร้านจะมารับเรื่องและกรอก Player ID ให้ครับ",
+            description=f"เกี่ยวกับการเช่าเกม\nกรุณารอเจ้าของร้านสักครู่ {role_mention}\nเจ้าของร้านจะมารับเรื่องและกรอก Player ID ให้ครับ",
             color=discord.Color.blue()
         )
-        self.disable_all_items()
-        await interaction.message.edit(view=self)
-        await interaction.channel.send(embed=embed, view=AdminSetIDView(interaction.user.id))
+        
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(embed=embed, view=AdminSetIDView(interaction.user.id))
 
-    @discord.ui.button(label="สอบถามเรื่องทั่วไป", style=discord.ButtonStyle.secondary, custom_id="topic_general_v2")
+    @discord.ui.button(label="สอบถามเรื่องทั่วไป", style=discord.ButtonStyle.secondary, custom_id="topic_general_v3")
     async def topic_general(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.defer()
+        # ล็อกการกดซ้ำ
+        for item in self.children:
+            item.disabled = True
 
         role_mention = f"<@&{ADMIN_ROLE_ID}>"
         embed = discord.Embed(
             title="💬 หมวดหมู่: สอบถามเรื่องทั่วไป",
-            description=f"พิมพ์ข้อความหรือคำถามทิ้งไว้ได้เลยครับ เจ้าของร้าน {role_mention} จะรีบมาตอบกลับ!",
+            description=f"สอบถามเรื่องที่ไม่เข้าใจหรือเรื่องทั่วไปอื่นๆ...\nพิมพ์ข้อความทิ้งไว้ได้เลยครับ เจ้าของร้าน {role_mention} จะรีบมาตอบกลับ!",
             color=discord.Color.green()
         )
-        self.disable_all_items()
-        await interaction.message.edit(view=self)
-        await interaction.channel.send(embed=embed)
+        
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(embed=embed)
 
 # --- 7. ปุ่มปิดตั๋ว (Close Ticket) ---
 class CloseTicketView(View):
@@ -179,7 +182,7 @@ class OpenTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v11")
+    @discord.ui.button(label="🎫 เปิดตั๋วเช่าคอม", style=discord.ButtonStyle.primary, custom_id="ice_open_ticket_v12")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -215,7 +218,6 @@ class OpenTicketView(View):
 
             role_mention = f"<@&{ADMIN_ROLE_ID}>"
 
-            # ข้อความต้อนรับตามคำพูดที่กำหนดเป๊ะๆ
             embed = discord.Embed(
                 title="❄️ ICE Cloud Gaming - ยินดีต้อนรับ",
                 description=(
@@ -235,7 +237,7 @@ class OpenTicketView(View):
             print(f"ERROR CREATE CHANNEL: {e}")
             await interaction.followup.send(f"เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
 
-    @discord.ui.button(label="🔎 Player ID ของฉันคือ...", style=discord.ButtonStyle.secondary, custom_id="check_my_player_id_btn_v2")
+    @discord.ui.button(label="🔎 Player ID ของฉันคือ...", style=discord.ButtonStyle.secondary, custom_id="check_my_player_id_btn_v3")
     async def check_my_id(self, interaction: discord.Interaction, button: Button):
         user_id = str(interaction.user.id)
         
@@ -368,4 +370,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-            
+        
