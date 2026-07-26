@@ -119,10 +119,8 @@ class CheckIDInTicketView(View):
         
         if user_id in player_db:
             pid = player_db[user_id]
-            # ส่งเลข ID ให้ลูกค้าดู
             await interaction.response.send_message(f"🎮 **Player ID ของคุณคือ:** `{pid}`", ephemeral=True)
             
-            # ถามต่อทันทีพร้อมส่งปุ่มตัวเลือกที่ 2
             embed = discord.Embed(
                 description="หากคุณลูกค้าต้องการเช่าเล่นเกมให้กดปุ่มนี้เพื่อดำเนินการ :",
                 color=discord.Color.blue()
@@ -164,7 +162,6 @@ class RentGameSubTopicView(View):
         user_id = str(interaction.user.id)
         role_mention = f"<@&{ADMIN_ROLE_ID}>"
 
-        # เช็กว่าลูกค้ามี ID ในระบบอยู่แล้วหรือไม่
         if user_id in player_db:
             embed = discord.Embed(
                 title="⚠️ คุณมี Player ID อยู่แล้ว",
@@ -194,7 +191,7 @@ class RentGameSubTopicView(View):
         )
         await interaction.response.send_message(embed=embed)
 
-# --- 9. ปุ่มหลักเลือกประเภทตั๋ว (เช่าเล่นเกม / สอบถามเรื่องทั่วไป - ปรับสีฟ้าเท่ากัน) ---
+# --- 9. ปุ่มหลักเลือกประเภทตั๋ว ---
 class TicketTopicView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -239,7 +236,6 @@ class CloseTicketView(View):
 
         channel_id = interaction.channel_id
 
-        # หากมีการกรอก Player ID ใหม่ในห้องนี้ ให้ส่งข้อมูลเข้าช่อง #บันทึกข้อมูลลูกค้า
         if channel_id in temp_ticket_data:
             data = temp_ticket_data[channel_id]
             user_id = str(data["user_id"])
@@ -448,7 +444,35 @@ async def setupverify(ctx):
     )
     await ctx.send(embed=embed, view=VerifyView())
 
-# --- 15. สั่งรันบอท ---
+# --- 15. คำสั่งรีเซ็ตข้อมูล Player ID ทั้งหมด (!Reset id all) ---
+@bot.command(name="Reset")
+@commands.has_permissions(administrator=True)
+async def reset_data(ctx, topic: str = None, scope: str = None):
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
+    # ตรวจสอบว่าพิมพ์คำสั่งถูกต้องหรือไม่ (!Reset id all)
+    if topic and topic.lower() == "id" and scope and scope.lower() == "all":
+        # 1. ล้างข้อมูลในแรมและไฟล์ JSON
+        player_db.clear()
+        temp_ticket_data.clear()
+        save_data(player_db)
+
+        # 2. ล้างข้อความในช่อง #บันทึกข้อมูลลูกค้า
+        log_channel = ctx.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            try:
+                await log_channel.purge(limit=500)
+            except Exception as e:
+                print(f"Error purging log channel: {e}")
+
+        await ctx.send("🧹 **รีเซ็ตข้อมูล Player ID ทั้งหมดเรียบร้อยแล้ว!**\nลบข้อมูลในไฟล์และล้างช่องบันทึกเรียบร้อย บอทจำ ID ใครไม่ได้แล้วครับ", delete_after=10)
+    else:
+        await ctx.send("❓ รูปแบบคำสั่งไม่ถูกต้อง กรุณาพิมพ์: `!Reset id all`", delete_after=5)
+
+# --- 16. สั่งรันบอท ---
 if __name__ == "__main__":
     keep_alive()
     token = os.environ.get("DISCORD_TOKEN")
