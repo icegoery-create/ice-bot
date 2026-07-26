@@ -28,8 +28,8 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- ID ค่าคงที่ของระบบ ---
-LOG_CHANNEL_ID = 1524639966169442427  # ช่องบันทึกข้อมูลลูกค้า
+# --- ID ค่าคงที่ของระบบ (แก้ไข ID ช่องบันทึกให้ถูกต้องแล้ว) ---
+LOG_CHANNEL_ID = 1524639966162845787  # ช่องบันทึกข้อมูลลูกค้า
 WELCOME_CHANNEL_ID = 1524635764556697680  # ช่องยินดีต้อนรับ
 CUSTOMER_ROLE_ID = 1530869786169442426  # ID ยศลูกค้า
 ADMIN_ROLE_ID = 1524631721641771050  # ID ยศเจ้าของร้าน/แอดมิน
@@ -70,12 +70,21 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
 
     async def on_submit(self, interaction: discord.Interaction):
         pid = self.player_id_input.value.strip()
+        
+        # เซฟลงฐานข้อมูลทันที
+        user_id_str = str(self.target_user_id)
+        player_db[user_id_str] = pid
+        save_data(player_db)
+        
+        # เก็บลงตัวแปรชั่วคราวเผื่อสแกนตอนปิดตั๋ว
         temp_ticket_data[interaction.channel_id] = {
             "user_id": self.target_user_id,
             "player_id": pid
         }
+
+        # ปรับข้อความตามที่ต้องการเป๊ะๆ
         await interaction.response.send_message(
-            f"✅ บันทึก Player ID: `{pid}` ให้คุณ <@{self.target_user_id}> เรียบร้อยแล้ว!\n(ระบบจะเซฟลงฐานข้อมูลถาวรเมื่อกดปิดตั๋ว)",
+            f"ตอนนี้เจ้าของร้านได้กรอกแล้ว \n Player IDคุณคือ {pid}",
             ephemeral=False
         )
 
@@ -85,7 +94,7 @@ class AdminSetIDView(View):
         super().__init__(timeout=None)
         self.target_user_id = target_user_id
 
-    @discord.ui.button(label="📝 กรอก Player ID ให้ลูกค้า", style=discord.ButtonStyle.success, custom_id="admin_set_id_btn_v3")
+    @discord.ui.button(label="📝 กรอก Player ID ให้ลูกค้า", style=discord.ButtonStyle.success, custom_id="admin_set_id_btn_v4")
     async def set_id(self, interaction: discord.Interaction, button: Button):
         if not interaction.user.guild_permissions.administrator and not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("❌ เฉพาะแอดมินหรือเจ้าของร้านเท่านั้นที่กดปุ่มนี้ได้!", ephemeral=True)
@@ -107,7 +116,6 @@ class TicketTopicView(View):
 
     @discord.ui.button(label="ขอPlayer ID", style=discord.ButtonStyle.primary, custom_id="topic_player_id_v3")
     async def topic_player_id(self, interaction: discord.Interaction, button: Button):
-        # ล็อกการกดซ้ำ
         for item in self.children:
             item.disabled = True
         
@@ -123,7 +131,6 @@ class TicketTopicView(View):
 
     @discord.ui.button(label="สอบถามเรื่องทั่วไป", style=discord.ButtonStyle.secondary, custom_id="topic_general_v3")
     async def topic_general(self, interaction: discord.Interaction, button: Button):
-        # ล็อกการกดซ้ำ
         for item in self.children:
             item.disabled = True
 
@@ -137,7 +144,7 @@ class TicketTopicView(View):
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(embed=embed)
 
-# --- 7. ปุ่มปิดตั๋ว (Close Ticket) ---
+# --- 7. ปุ่มปิดตั๋ว (Close Ticket) + ส่งเข้าช่องบันทึกข้อมูลลูกค้า ---
 class CloseTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -150,17 +157,12 @@ class CloseTicketView(View):
 
         channel_id = interaction.channel_id
 
-        # หากมีการกรอก Player ID ไว้ในห้องนี้ ให้ทำการบันทึกข้อมูลถาวร
+        # หากมีการกรอก Player ID ไว้ในห้องนี้ ส่งการ์ดเข้าช่อง #บันทึกข้อมูลลูกค้า
         if channel_id in temp_ticket_data:
             data = temp_ticket_data[channel_id]
             user_id = str(data["user_id"])
             pid = data["player_id"]
 
-            # เซฟลงฐานข้อมูล local
-            player_db[user_id] = pid
-            save_data(player_db)
-
-            # ส่งเข้าช่อง #บันทึกข้อมูลลูกค้า
             log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
             if log_channel:
                 log_embed = discord.Embed(
@@ -170,7 +172,6 @@ class CloseTicketView(View):
                 )
                 await log_channel.send(embed=log_embed)
 
-            # ลบข้อมูลชั่วคราวออก
             del temp_ticket_data[channel_id]
 
         await interaction.response.send_message("🔒 กำลังปิดและลบห้องตั๋วนี้ภายใน 3 วินาที...")
@@ -370,4 +371,3 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-        
