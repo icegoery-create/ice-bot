@@ -24,7 +24,7 @@ def keep_alive():
 # --- 2. ตั้งค่า Intent และ Bot ---
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True # เปิดใช้งาน Intent สมาชิกเพื่อตรวจจับการเข้าเซิร์ฟเวอร์/ให้ยศ
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- 3. ปุ่มกดรับยศ (Verification View) ---
@@ -34,8 +34,11 @@ class VerifyView(View):
 
     @discord.ui.button(label="✅ รับยศลูกค้า", style=discord.ButtonStyle.success, custom_id="verify_role_btn")
     async def verify_role(self, interaction: discord.Interaction, button: Button):
-        role_id = 1530869786169442426  # ID ยศลูกค้าของพี่
+        role_id = 1530869786169442426  # ID ยศลูกค้า
+        welcome_channel_id = 1524635764556697680  # ID ช่องยินดีต้อนรับ
+        
         role = interaction.guild.get_role(role_id)
+        welcome_channel = interaction.guild.get_channel(welcome_channel_id)
 
         if not role:
             await interaction.response.send_message("❌ ไม่พบยศนี้ในระบบ กรุณาติดต่อแอดมิน", ephemeral=True)
@@ -43,13 +46,16 @@ class VerifyView(View):
 
         # ตรวจสอบว่ามีรอยส์อยู่แล้วหรือยัง
         if role in interaction.user.roles:
-            await interaction.response.send_message("⚠️ คุณได้รับยศลูกค้าเรียบร้อยแล้วครับ!", ephemeral=True)
+            welcome_link = welcome_channel.mention if welcome_channel else "หน้ายินดีต้อนรับ"
+            await interaction.response.send_message(f"⚠️ คุณได้รับยศลูกค้าเรียบร้อยแล้วครับ!\n👉🏻 ไปที่ {welcome_link}", ephemeral=True)
             return
 
         # ทำการเพิ่มยศให้สมาชิก
         try:
             await interaction.user.add_roles(role)
-            await interaction.response.send_message("🎉 ยืนยันตัวตนสำเร็จ! ปลดล็อกห้องทั้งหมดเรียบร้อยแล้วครับ", ephemeral=True)
+            welcome_link = welcome_channel.mention if welcome_channel else "หน้ายินดีต้อนรับ"
+            # แจ้งเตือนพร้อมลิงก์วาร์ปไปหน้ายินดีต้อนรับ
+            await interaction.response.send_message(f"🎉 ยืนยันตัวตนสำเร็จ!\n👉🏻 คลิกที่นี่เพื่อไปหน้ายินดีต้อนรับ: {welcome_link}", ephemeral=True)
         except Exception as e:
             print(f"Error assigning role: {e}")
             await interaction.response.send_message("❌ เกิดข้อผิดพลาดในการมอบยศ กรุณาแจ้งแอดมิน", ephemeral=True)
@@ -128,10 +134,10 @@ class OpenTicketView(View):
 async def on_ready():
     bot.add_view(OpenTicketView())
     bot.add_view(CloseTicketView())
-    bot.add_view(VerifyView()) # ลงทะเบียนปุ่มรับยศให้อยู่ถาวร
+    bot.add_view(VerifyView())
     print(f'บอท {bot.user} ออนไลน์พร้อมใช้งานแล้ว!')
 
-# --- 6. ระบบตรวจจับการรับยศ เพื่อส่งข้อความต้อนรับ ---
+# --- 6. ระบบตรวจจับการรับยศ เพื่อส่งข้อความต้อนรับ (ลบแท็กออกแล้ว) ---
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
     role_id = 1530869786169442426  # ID ยศลูกค้า
@@ -141,17 +147,16 @@ async def on_member_update(before: discord.Member, after: discord.Member):
     if not role:
         return
 
-    # เช็กว่าตอนแรกยังไม่มี แต่ตอนนี้ได้ยศนี้แล้ว
+    # เช็กว่าเพิ่งได้รับยศลูกค้า
     if role not in before.roles and role in after.roles:
         welcome_channel = after.guild.get_channel(welcome_channel_id)
         if welcome_channel:
-            # สร้าง Embed ต้อนรับพร้อมรูปโปรไฟล์ลูกค้า (Thumbnail)
             embed = discord.Embed(
                 title="✨ สมาชิกใหม่รับยศสำเร็จ!",
                 description=f"ยินดีต้อนรับคุณ **{after.display_name}** ลูกค้าใหม่เข้าสู่เซิร์ฟเวอร์ ICE Cloud Gaming! 🎮\n\nหากต้องการเช่าเกมหรือสอบถามข้อมูล สามารถเปิดตั๋วติดต่อแอดมินได้เลยนะครับ ขอให้สนุกกับการเล่นเกมครับ!",
                 color=discord.Color.blue()
             )
-            # ดึงรูปโปรไฟล์ลูกค้ามาแปะมุมขวาบน
+            # ดึงรูปโปรไฟล์ลูกค้ามาแปะเป็น Thumbnail มุมขวาบน
             if after.avatar:
                 embed.set_thumbnail(url=after.avatar.url)
             else:
@@ -159,7 +164,8 @@ async def on_member_update(before: discord.Member, after: discord.Member):
 
             embed.set_footer(text="ICE Cloud Gaming Community", icon_url=after.guild.icon.url if after.guild.icon else None)
 
-            await welcome_channel.send(content=f"{after.mention}", embed=embed)
+            # ส่งเฉพาะ Embed อย่างเดียว (ไม่แท็กลูกค้าข้างบนแล้ว)
+            await welcome_channel.send(embed=embed)
 
 @bot.command()
 async def ticket(ctx):
@@ -179,7 +185,6 @@ async def ticket(ctx):
 
     await ctx.send(embed=embed, view=OpenTicketView())
 
-# --- คำสั่งสำหรับสร้างปุ่มรับยศในห้อง #รับยศ (พิมพ์ครั้งเดียวแล้วลบได้) ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setupverify(ctx):
@@ -203,4 +208,4 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("ERROR: ไม่พบ DISCORD_TOKEN")
-    
+                                         
