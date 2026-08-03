@@ -53,7 +53,7 @@ ADMIN_ROLE_ID = 1524631721641771050       # ID ยศเจ้าของร้
 # ตัวแปรจำ Player ID ชั่วคราวระหว่างเปิดตั๋ว
 temp_ticket_data = {}
 
-# --- 3. ระบบจัดการไฟล์ฐานข้อมูล local JSON (รองรับระบบสถานะขั้นสูง) ---
+# --- 3. ระบบจัดการไฟล์ฐานข้อมูล local JSON ---
 DATA_FILE = "player_ids.json"
 
 def load_data():
@@ -61,7 +61,6 @@ def load_data():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 raw_data = json.load(f)
-                # แปลงข้อมูลโครงสร้างเก่าให้รองรับโครงสร้างใหม่แบบอัตโนมัติ
                 migrated_data = {}
                 for uid, val in raw_data.items():
                     if isinstance(val, str):
@@ -80,7 +79,6 @@ def load_data():
     return {}
 
 def save_data(data):
-    # แปลง datetime object เป็น string ก่อนเซฟลง JSON
     clean_data = {}
     for uid, info in data.items():
         clean_data[uid] = info.copy()
@@ -111,7 +109,7 @@ def get_time_string(joined_at):
     else:
         return f"{hours} ชม."
 
-# --- 4. ปุ่มกดตอบกลับใน DM ของลูกค้า (เก็บไว้ก่อน / ไม่ต้องเก็บ) ---
+# --- 4. ปุ่มกดตอบกลับใน DM ของลูกค้า ---
 class DMResponseView(View):
     def __init__(self, user_id_str):
         super().__init__(timeout=None)
@@ -140,8 +138,7 @@ class DMResponseView(View):
 
         if self.user_id_str in player_db:
             pid = player_db[self.user_id_str].get("player_id", "ไม่ทราบ")
-            # แจ้งเตือนแอดมินในช่อง LOG ว่าลูกค้ายกเลิกการเก็บเซฟ
-            guild = bot.guilds[0] # ดึงเซิร์ฟเวอร์แรก
+            guild = bot.guilds[0]
             log_channel = guild.get_channel(LOG_CHANNEL_ID)
             if log_channel:
                 await log_channel.send(f"🚨 **แจ้งเตือนจากลูกค้า:** ลูกค้า <@{self.user_id_str}> (Player ID: `{pid}`) กดเลือก **'ไม่ต้องเก็บไฟล์เซฟไว้'** แอดมินสามารถดำเนินการลบไฟล์ได้เลยครับ!")
@@ -165,7 +162,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
         pid = self.player_id_input.value.strip()
         user_id_str = str(self.target_user_id)
         
-        # บันทึกข้อมูลพร้อมรีเซ็ตสถานะเป็นเขียวและอัปเดตเวลาล่าสุด
         player_db[user_id_str] = {
             "player_id": pid,
             "updated_at": datetime.utcnow().isoformat(),
@@ -433,8 +429,8 @@ class VerifyView(View):
             print(f"Error assigning role: {e}")
             await interaction.response.send_message("❌ เกิดข้อผิดพลาดในการมอบยศ กรุณาแจ้งแอดมิน", ephemeral=True)
 
-# --- 7. พื้นหลังอัจฉริยะ: เช็กสถานะเวลาและคิวส่ง DM ป้องกัน Rate Limit ---
-@tasks.loop(seconds=10) # เช็กทุกๆ 10 วินาที
+# --- 7. พื้นหลังอัจฉริยะ: เช็กสถานะเวลาและคิวส่ง DM ---
+@tasks.loop(seconds=10)
 async def background_status_checker():
     if not bot.guilds:
         return
@@ -456,7 +452,6 @@ async def background_status_checker():
         dm_sent = info.get("dm_sent", False)
         countdown_start = info.get("countdown_start")
 
-        # 1. เช็กเปลี่ยนจาก สีเขียว ➔ สีเหลือง (ครบกำหนดเตือน)
         if status == "green" and elapsed >= YELLOW_THRESHOLD and not dm_sent:
             try:
                 embed_dm = discord.Embed(
@@ -472,38 +467,31 @@ async def background_status_checker():
                 )
                 await member.send(embed=embed_dm, view=DMResponseView(user_id_str))
                 
-                # อัปเดตสถานะเป็นเหลือง ส่ง DM สำเร็จ
                 info["status"] = "yellow"
                 info["dm_sent"] = True
                 save_data(player_db)
                 
             except discord.Forbidden:
-                # ปิด DM ➔ ย้ายไปเป็น สีดำ ทันที
                 info["status"] = "black"
                 info["dm_sent"] = True
                 save_data(player_db)
             
-            # หน่วงเวลาตามคิวป้องกัน Rate Limit 100%
             await asyncio.sleep(DM_COOLDOWN)
 
-        # 2. เช็กเปลี่ยนจาก สีเหลือง ➔ สีแดง (ครบกำหนด 6 เดือน/นานมาก)
         elif status == "yellow" and elapsed >= RED_THRESHOLD and not countdown_start:
             info["status"] = "red"
             info["countdown_start"] = now.isoformat()
             save_data(player_db)
 
-        # 3. เช็กสถานะสีแดง: นับถอยหลังครบ 5 วัน (หรือ 30 วิ ในโหมดเทส) แล้วแจ้งเตือนแอดมิน
         elif status == "red" and countdown_start:
             cd_start_time = datetime.fromisoformat(countdown_start)
             if now - cd_start_time >= COUNTDOWN_DURATION:
-                # แจ้งเตือนแอดมินในห้อง Log
                 log_channel = guild.get_channel(LOG_CHANNEL_ID)
                 if log_channel:
                     await log_channel.send(
                         f"🚨 **แจ้งเตือนหมดเวลาตอบกลับ:** สมาชิก {member.mention} (Player ID: `{info.get('player_id')}`) "
                         "ไม่ตอบกลับการแจ้งเตือนภายในกำหนดเวลา ครบกำหนดลบไฟล์เซฟแล้วครับแอดมิน!"
                     )
-                # ล็อกสถานะเพื่อไม่ให้ส่งซ้ำรัวๆ
                 info["status"] = "expired"
                 save_data(player_db)
 
@@ -551,7 +539,6 @@ async def on_ready():
     bot.add_view(CheckIDInTicketView())
     bot.add_view(HasIDToRentView())
     
-    # เปิดการทำงาน background task
     if not background_status_checker.is_running():
         background_status_checker.start()
         
@@ -597,12 +584,12 @@ async def on_member_remove(member: discord.Member):
     avatar_url = member.display_avatar.url if member.display_avatar else member.default_avatar.url
     embed.set_thumbnail(url=avatar_url)
     embed.add_field(name="👤 ผู้ใช้งาน", value=f"{member.mention} (`ID: {member.id}`)", inline=False)
-    embed.add_field(name="🎮 Player ID (สำหรับลบไฟล์เซฟ)", value=`{player_id}`, inline=False)
+    embed.add_field(name="🎮 Player ID (สำหรับลบไฟล์เซฟ)", value=f"`{player_id}`", inline=False)
     embed.add_field(name="⏱️ ระยะเวลาที่เคยอยู่ในดิส", value=f"`{time_spent}`", inline=False)
     embed.set_footer(text="ICE Cloud Gaming - System Notification", icon_url=member.guild.icon.url if member.guild.icon else None)
     await leave_channel.send(embed=embed)
 
-# --- 9. คำสั่งจัดการรายงานรายชื่อ (!idlist เรียงตามลำดับความสำคัญ ดำ ➔ เทา ➔ แดง ➔ เหลือง ➔ เขียว) ---
+# --- 9. คำสั่งจัดการรายงานรายชื่อ (!idlist) ---
 @bot.command(name="idlist")
 @commands.has_permissions(administrator=True)
 async def export_id_list(ctx):
@@ -617,7 +604,6 @@ async def export_id_list(ctx):
     with open(file_path, "w", encoding="utf-8") as f:
         f.write("=== รายงานสถานะ Player ID และสมาชิก ICE Cloud Gaming ===\n\n")
         
-        # จัดหมวดหมู่ตามสี
         black_list, red_list, yellow_list, green_list, gray_list = [], [], [], [], []
 
         for member in guild.members:
