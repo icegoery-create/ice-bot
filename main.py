@@ -435,7 +435,9 @@ async def background_status_checker():
     if not bot.guilds:
         return
     guild = bot.guilds[0]
-    now = datetime.utcnow()
+    from datetime import datetime, timezone # (อย่าลืม import timezone ถ้ายังไม่มี)
+
+    now = datetime.now(timezone.utc)
 
     for user_id_str, info in list(player_db.items()):
         member = guild.get_member(int(user_id_str))
@@ -601,7 +603,7 @@ async def export_id_list(ctx):
     guild = ctx.guild
     file_path = "player_ids_summary.txt"
     
-    with open(file_path, "w", encoding="utf-8") as f:
+    with open("player_ids_summary.txt", "w", encoding="utf-8-sig") as f:
         f.write("=== รายงานสถานะ Player ID และสมาชิก ICE Cloud Gaming ===\n\n")
         
         black_list, red_list, yellow_list, green_list, gray_list = [], [], [], [], []
