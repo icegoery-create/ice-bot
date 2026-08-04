@@ -146,7 +146,7 @@ class DMResponseView(View):
 
         await interaction.response.send_message("เข้าใจแล้วครับ ไว้โอกาสหน้ามาใช้บริการเช่าเกมได้นะครับ ICE Cloud Gaming พร้อมต้อนรับครับ!", ephemeral=True)
 
-# --- 5. Modal กรอก Player ID ---
+# --- 5. Modal กรอก Player ID (จุดที่บันทึกลง Log Channel ทันที) ---
 class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค้า"):
     player_id_input = TextInput(
         label="Player ID",
@@ -163,6 +163,7 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
         pid = self.player_id_input.value.strip()
         user_id_str = str(self.target_user_id)
         
+        # 1. บันทึกลงฐานข้อมูล local JSON
         player_db[user_id_str] = {
             "player_id": pid,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -177,8 +178,27 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
             "player_id": pid
         }
 
+        # 2. ⚡ ส่งบันทึกลงช่อง log (📁 · บันทึกข้อมูลลูกค้า) ทันที!
+        if interaction.guild:
+            log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="📌 บันทึกข้อมูล Player ID ลูกค้า",
+                    description=f"**ลูกค้า:** <@{user_id_str}> (`{user_id_str}`)\n**Player ID:** `{pid}`",
+                    color=discord.Color.gold()
+                )
+                await log_channel.send(embed=log_embed)
+
+        # 3. ⚡ ตอบกลับในช่องตั๋ว พร้อมส่ง Embed และปุ่ม "มีPlayer ID ต้องการเช่า" ต่อท้ายทันที
+        embed = discord.Embed(
+            description="หากคุณลูกค้าต้องการเช่าเล่นเกมให้กดปุ่มด้านล่างนี้เพื่อดำเนินการต่อได้เลยครับ :",
+            color=discord.Color.blue()
+        )
+
         await interaction.response.send_message(
-            f"ตอนนี้เจ้าของร้านได้กรอกแล้ว \n Player IDคุณคือ {pid}",
+            f"ตอนนี้เจ้าของร้านได้กรอกแล้ว \n Player IDคุณคือ `{pid}`",
+            embed=embed,
+            view=HasIDToRentView(),
             ephemeral=False
         )
 
@@ -245,6 +265,7 @@ class RentGameSubTopicView(View):
     def __init__(self, user_has_id: bool = False):
         super().__init__(timeout=None)
 
+        # 1. ปุ่ม ขอPlayer ID (ถ้ามี ID ในระบบแล้ว จะกลายเป็นสีเทากดไม่ได้)
         self.btn_request = Button(
             label="ขอPlayer ID",
             style=discord.ButtonStyle.primary,
@@ -254,6 +275,7 @@ class RentGameSubTopicView(View):
         self.btn_request.callback = self.sub_request_player_id
         self.add_item(self.btn_request)
 
+        # 2. ปุ่ม มีPlayer ID ต้องการเช่า (ถ้ายังไม่มี ID ในระบบ จะกลายเป็นสีเทากดไม่ได้)
         self.btn_has_id = Button(
             label="มีPlayer ID ต้องการเช่า",
             style=discord.ButtonStyle.success,
@@ -309,6 +331,7 @@ class TicketTopicView(View):
             item.disabled = True
         await interaction.message.edit(view=self)
 
+        # 🔎 เช็กสถานะว่าลูกค้าเคยมี ID ในระบบแล้วหรือไม่
         user_id = str(interaction.user.id)
         user_has_id = user_id in player_db
 
@@ -317,6 +340,7 @@ class TicketTopicView(View):
             description="กรุณาเลือกตัวเลือกที่ต้องการด้านล่างได้เลยครับ",
             color=discord.Color.blue()
         )
+        # ส่งค่า user_has_id เพื่อไปกำหนดสถานะปุ่มสีเทา/สีปกติ
         await interaction.response.send_message(embed=embed, view=RentGameSubTopicView(user_has_id=user_has_id))
 
     @discord.ui.button(label="สอบถามเรื่องทั่วไป", style=discord.ButtonStyle.primary, custom_id="topic_general_v4")
@@ -345,19 +369,6 @@ class CloseTicketView(View):
 
         channel_id = interaction.channel_id
         if channel_id in temp_ticket_data:
-            data = temp_ticket_data[channel_id]
-            user_id = str(data["user_id"])
-            pid = data["player_id"]
-
-            log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-            if log_channel:
-                log_embed = discord.Embed(
-                    title="📌 บันทึกข้อมูล Player ID ลูกค้า",
-                    description=f"**ลูกค้า:** <@{user_id}> (`{user_id}`)\n**Player ID:** `{pid}`",
-                    color=discord.Color.gold()
-                )
-                await log_channel.send(embed=log_embed)
-
             del temp_ticket_data[channel_id]
 
         await interaction.response.send_message("🔒 กำลังปิดและลบห้องตั๋วนี้ภายใน 3 วินาที...")
