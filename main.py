@@ -1,10 +1,11 @@
 import os
 import json
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask
 from threading import Thread
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 from discord.ui import Button, View, Modal, TextInput
 
@@ -12,10 +13,10 @@ from discord.ui import Button, View, Modal, TextInput
 TESTING_MODE = True
 
 if TESTING_MODE:
-    YELLOW_THRESHOLD = timedelta(minutes=1)   # โหมดเทส: 1 นาทีกลายเป็นสีเหลือง (ของจริง: 3 เดือน 15 วัน)
-    RED_THRESHOLD = timedelta(minutes=3)      # โหมดเทส: 3 นาทีกลายเป็นสีแดง (ของจริง: 6 เดือน)
-    COUNTDOWN_DURATION = timedelta(seconds=30)# โหมดเทส: นับถอยหลัง 30 วินาที (ของจริง: 5 วัน)
-    DM_COOLDOWN = 5                           # โหมดเทส: เว้นระยะส่ง DM 5 วินาที (ของจริง: 900 วินาที / 15 นาที)
+    YELLOW_THRESHOLD = timedelta(minutes=1)   # โหมดเทส: 1 นาทีกลายเป็นสีเหลือง
+    RED_THRESHOLD = timedelta(minutes=3)      # โหมดเทส: 3 นาทีกลายเป็นสีแดง
+    COUNTDOWN_DURATION = timedelta(seconds=30)# โหมดเทส: นับถอยหลัง 30 วินาที
+    DM_COOLDOWN = 5                            # โหมดเทส: เว้นระยะส่ง DM 5 วินาที
 else:
     YELLOW_THRESHOLD = timedelta(days=105)    # 3 เดือน 15 วัน
     RED_THRESHOLD = timedelta(days=180)       # 6 เดือน
@@ -66,7 +67,7 @@ def load_data():
                     if isinstance(val, str):
                         migrated_data[uid] = {
                             "player_id": val,
-                            "updated_at": datetime.utcnow().isoformat(),
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
                             "status": "green",
                             "dm_sent": False,
                             "countdown_start": None
@@ -123,7 +124,7 @@ class DMResponseView(View):
 
         if self.user_id_str in player_db:
             player_db[self.user_id_str]["status"] = "green"
-            player_db[self.user_id_str]["updated_at"] = datetime.utcnow().isoformat()
+            player_db[self.user_id_str]["updated_at"] = datetime.now(timezone.utc).isoformat()
             player_db[self.user_id_str]["dm_sent"] = False
             player_db[self.user_id_str]["countdown_start"] = None
             save_data(player_db)
@@ -143,7 +144,7 @@ class DMResponseView(View):
             if log_channel:
                 await log_channel.send(f"🚨 **แจ้งเตือนจากลูกค้า:** ลูกค้า <@{self.user_id_str}> (Player ID: `{pid}`) กดเลือก **'ไม่ต้องเก็บไฟล์เซฟไว้'** แอดมินสามารถดำเนินการลบไฟล์ได้เลยครับ!")
 
-        await interaction.response.send_message("understood เข้าใจแล้วครับ ไว้โอกาสหน้ามาใช้บริการเช่าเกมได้นะครับ ICE Cloud Gaming พร้อมต้อนรับครับ!", ephemeral=True)
+        await interaction.response.send_message("เข้าใจแล้วครับ ไว้โอกาสหน้ามาใช้บริการเช่าเกมได้นะครับ ICE Cloud Gaming พร้อมต้อนรับครับ!", ephemeral=True)
 
 # --- 5. Modal กรอก Player ID ---
 class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค้า"):
@@ -164,7 +165,7 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
         
         player_db[user_id_str] = {
             "player_id": pid,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "status": "green",
             "dm_sent": False,
             "countdown_start": None
@@ -435,8 +436,6 @@ async def background_status_checker():
     if not bot.guilds:
         return
     guild = bot.guilds[0]
-    from datetime import datetime, timezone # (อย่าลืม import timezone ถ้ายังไม่มี)
-
     now = datetime.now(timezone.utc)
 
     for user_id_str, info in list(player_db.items()):
@@ -520,7 +519,7 @@ async def sync_data_from_channel():
                         if user_id_part not in player_db:
                             player_db[user_id_part] = {
                                 "player_id": pid_part,
-                                "updated_at": datetime.utcnow().isoformat(),
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
                                 "status": "green",
                                 "dm_sent": False,
                                 "countdown_start": None
@@ -530,8 +529,10 @@ async def sync_data_from_channel():
     save_data(player_db)
     print("✅ ซิงค์ข้อมูลเรียบร้อยแล้ว!")
 
+# --- 9. ระบบ Event หลักของบอท ---
 @bot.event
 async def on_ready():
+    # โหลด Views ต่างๆ ให้ทำงานได้แม้บอทจะรีสตาร์ท
     bot.add_view(OpenTicketView())
     bot.add_view(CloseTicketView())
     bot.add_view(VerifyView())
@@ -541,6 +542,13 @@ async def on_ready():
     bot.add_view(CheckIDInTicketView())
     bot.add_view(HasIDToRentView())
     
+    # ⚠️ ลงทะเบียน Slash Commands ไปยัง Discord
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Sync Slash Commands เรียบร้อยแล้ว จำนวน {len(synced)} คำสั่ง")
+    except Exception as e:
+        print(f"❌ เกิดข้อผิดพลาดในการ Sync Slash Commands: {e}")
+
     if not background_status_checker.is_running():
         background_status_checker.start()
         
@@ -591,19 +599,17 @@ async def on_member_remove(member: discord.Member):
     embed.set_footer(text="ICE Cloud Gaming - System Notification", icon_url=member.guild.icon.url if member.guild.icon else None)
     await leave_channel.send(embed=embed)
 
-# --- 9. คำสั่งจัดการรายงานรายชื่อ (!idlist) ---
-@bot.command(name="idlist")
-@commands.has_permissions(administrator=True)
-async def export_id_list(ctx):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
+# --- 10. Slash Commands (คำสั่งรหัส /) ---
 
-    guild = ctx.guild
+# 10.1 คำสั่งดึงไฟล์รายงานสรุปสถานะ
+@bot.tree.command(name="idlist", description="ส่งไฟล์สรุปรายงานสถานะสมาชิกทั้งหมด (เฉพาะแอดมิน)")
+@app_commands.checks.has_permissions(administrator=True)
+async def export_id_list(interaction: discord.Interaction):
+    await interaction.response.defer() # ป้องกันคำสั่ง Timeout
+    guild = interaction.guild
     file_path = "player_ids_summary.txt"
     
-    with open("player_ids_summary.txt", "w", encoding="utf-8-sig") as f:
+    with open(file_path, "w", encoding="utf-8-sig") as f:
         f.write("=== รายงานสถานะ Player ID และสมาชิก ICE Cloud Gaming ===\n\n")
         
         black_list, red_list, yellow_list, green_list, gray_list = [], [], [], [], []
@@ -637,21 +643,15 @@ async def export_id_list(ctx):
         f.write("--- 🟢 สถานะสีเขียว (สบายๆ / ใช้งานปกติ) ---\n" + ("\n".join(green_list) or "ไม่มี") + "\n\n")
         f.write("--- ⚪ สถานะสีเทา (ไม่มี Player ID) ---\n" + ("\n".join(gray_list) or "ไม่มี") + "\n")
 
-    await ctx.send("📊 **รายงานสรุปสถานะสมาชิกทั้งหมดจัดเรียงตามลำดับความสำคัญครับ:**", file=discord.File(file_path))
+    await interaction.followup.send("📊 **รายงานสรุปสถานะสมาชิกทั้งหมดจัดเรียงตามลำดับความสำคัญครับ:**", file=discord.File(file_path))
     if os.path.exists(file_path):
         os.remove(file_path)
 
-@bot.command(name="checkuser")
-@commands.has_permissions(administrator=True)
-async def check_user(ctx, member: discord.Member = None):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-    if not member:
-        await ctx.send("❓ กรุณาระบุสมาชิก เช่น: `!checkuser @ลูกค้า`", delete_after=5)
-        return
-
+# 10.2 คำสั่งเช็กข้อมูลผู้ใช้รายคน
+@bot.tree.command(name="checkuser", description="ตรวจสอบข้อมูล Player ID และสถานะของสมาชิก (เฉพาะแอดมิน)")
+@app_commands.describe(member="เลือกสมาชิกที่ต้องการตรวจสอบ")
+@app_commands.checks.has_permissions(administrator=True)
+async def check_user(interaction: discord.Interaction, member: discord.Member):
     user_id_str = str(member.id)
     time_spent = get_time_string(member.joined_at)
     
@@ -669,14 +669,13 @@ async def check_user(ctx, member: discord.Member = None):
     embed.add_field(name="🎮 Player ID", value=f"`{pid}`", inline=False)
     embed.add_field(name="🎨 สถานะปัจจุบัน", value=f"`{status}`", inline=False)
     embed.add_field(name="⏱️ ระยะเวลาที่อยู่ในดิสคอร์ด", value=f"`{time_spent}`", inline=False)
-    await ctx.send(embed=embed, delete_after=20)
+    
+    await interaction.response.send_message(embed=embed)
 
-@bot.command()
-async def ticket(ctx):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
+# 10.3 คำสั่งส่งแผงเปิดตั๋ว
+@bot.tree.command(name="ticket", description="ส่งแผงข้อความกดเปิดตั๋วเช่าคอม/เช่าเกม (เฉพาะแอดมิน)")
+@app_commands.checks.has_permissions(administrator=True)
+async def ticket(interaction: discord.Interaction):
     embed = discord.Embed(
         title="❄️ ICE Cloud Gaming | บริการเช่าเล่นเกม",
         description="กดเปิดแชทเพื่อเริ่มขอ Player ID และ OTP หรือสอบถามข้อมูลเพิ่มเติมครับ",
@@ -684,43 +683,48 @@ async def ticket(ctx):
     )
     embed.set_image(url="https://cdn.discordapp.com/attachments/1525449388212748328/1525711847817478215/5035230a3313e71c85e3a8c8e9d63174e547958b99d80015c52c3233eecbb7ab.png?ex=6a638aa2&is=6a623922&hm=3100db3f8c1af503c8df06a3cac534578b7b28415265f208d16d87797426a875&")
     embed.set_footer(text="Powered by ICE Cloud Gaming", icon_url=bot.user.avatar.url if bot.user.avatar else None)
-    await ctx.send(embed=embed, view=OpenTicketView())
+    
+    await interaction.response.send_message("ส่งแผงกดตั๋วสำเร็จ!", ephemeral=True)
+    await interaction.channel.send(embed=embed, view=OpenTicketView())
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setupverify(ctx):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
+# 10.4 คำสั่งส่งแผงยืนยันตัวตนรับยศ
+@bot.tree.command(name="setupverify", description="ส่งแผงข้อความกดยืนยันตัวตนรับยศลูกค้า (เฉพาะแอดมิน)")
+@app_commands.checks.has_permissions(administrator=True)
+async def setupverify(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🛡️ ยืนยันตัวตนเพื่อเข้าสู่เซิร์ฟเวอร์",
         description="กรุณากดปุ่ม **'✅ รับยศลูกค้า'** ด้านล่าง เพื่อปลดล็อกช่องพูดคุยและบริการทั้งหมดของ ICE Cloud Gaming ครับ!",
         color=discord.Color.gold()
     )
-    await ctx.send(embed=embed, view=VerifyView())
+    await interaction.response.send_message("ส่งแผงยืนยันตัวตนสำเร็จ!", ephemeral=True)
+    await interaction.channel.send(embed=embed, view=VerifyView())
 
-@bot.command(name="Reset")
-@commands.has_permissions(administrator=True)
-async def reset_data(ctx, topic: str = None, scope: str = None):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-    if topic and topic.lower() == "id" and scope and scope.lower() == "all":
-        player_db.clear()
-        temp_ticket_data.clear()
-        save_data(player_db)
-        log_channel = ctx.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            try:
-                await log_channel.purge(limit=500)
-            except Exception:
-                pass
-        await ctx.send("🧹 **รีเซ็ตข้อมูล Player ID ทั้งหมดเรียบร้อยแล้ว!**", delete_after=10)
+# 10.5 คำสั่งรีเซ็ตข้อมูล
+@bot.tree.command(name="reset_id", description="รีเซ็ตข้อมูล Player ID ทั้งหมดในระบบ (เฉพาะแอดมิน)")
+@app_commands.checks.has_permissions(administrator=True)
+async def reset_data(interaction: discord.Interaction):
+    player_db.clear()
+    temp_ticket_data.clear()
+    save_data(player_db)
+    
+    log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+    if log_channel:
+        try:
+            await log_channel.purge(limit=500)
+        except Exception:
+            pass
+            
+    await interaction.response.send_message("🧹 **รีเซ็ตข้อมูล Player ID ทั้งหมดเรียบร้อยแล้ว!**")
+
+# --- 11. ตัวดักจับ Error กรณีผู้ใช้ไม่มีสิทธิ์กดใช้ Slash Command ---
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ครับ! (เฉพาะแอดมินเท่านั้น)", ephemeral=True)
     else:
-        await ctx.send("❓ รูปแบบคำสั่งไม่ถูกต้อง กรุณาพิมพ์: `!Reset id all`", delete_after=5)
+        print(f"AppCommand Error: {error}")
 
+# --- 12. เริ่มต้นรันบอท ---
 if __name__ == "__main__":
     keep_alive()
     token = os.environ.get("DISCORD_TOKEN")
