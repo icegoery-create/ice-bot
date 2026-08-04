@@ -242,37 +242,53 @@ class HasIDToRentView(View):
         await interaction.response.send_message(embed=embed)
 
 class RentGameSubTopicView(View):
-    def __init__(self):
+    def __init__(self, user_has_id: bool = False):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="ขอPlayer ID", style=discord.ButtonStyle.primary, custom_id="sub_request_player_id")
-    async def sub_request_player_id(self, interaction: discord.Interaction, button: Button):
-        for item in self.children:
-            item.disabled = True
+        self.btn_request = Button(
+            label="ขอPlayer ID",
+            style=discord.ButtonStyle.primary,
+            custom_id="sub_request_player_id",
+            disabled=user_has_id
+        )
+        self.btn_request.callback = self.sub_request_player_id
+        self.add_item(self.btn_request)
+
+        self.btn_has_id = Button(
+            label="มีPlayer ID ต้องการเช่า",
+            style=discord.ButtonStyle.success,
+            custom_id="sub_has_player_id",
+            disabled=not user_has_id
+        )
+        self.btn_has_id.callback = self.sub_has_player_id
+        self.add_item(self.btn_has_id)
+
+    async def sub_request_player_id(self, interaction: discord.Interaction):
+        user_id = str(interaction.user.id)
+        if user_id in player_db:
+            await interaction.response.send_message("⚠️ คุณมี Player ID ในระบบอยู่แล้วครับ ไม่สามารถขอเพิ่มได้!", ephemeral=True)
+            return
+
+        for child in self.children:
+            child.disabled = True
         await interaction.message.edit(view=self)
 
-        user_id = str(interaction.user.id)
         role_mention = f"<@&{ADMIN_ROLE_ID}>"
+        embed = discord.Embed(
+            title="🎮 หมวดหมู่: ขอ Player ID / เช่าเกม",
+            description=f"เกี่ยวกับการเช่าเกม\nกรุณารอเจ้าของร้านสักครู่ {role_mention}\nเจ้าของร้านจะมารับเรื่องและกรอก Player ID ให้ครับ",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, view=AdminSetIDView(interaction.user.id))
 
-        if user_id in player_db:
-            embed = discord.Embed(
-                title="⚠️ คุณมี Player ID อยู่แล้ว",
-                description="คุณมี Player ID อยู่แล้วหากลืมโปรดกดที่ **'🔎 Player ID ของฉันคือ...'** ด้านล่างได้เลยครับ",
-                color=discord.Color.orange()
-            )
-            await interaction.response.send_message(embed=embed, view=CheckIDInTicketView())
-        else:
-            embed = discord.Embed(
-                title="🎮 หมวดหมู่: ขอ Player ID / เช่าเกม",
-                description=f"เกี่ยวกับการเช่าเกม\nกรุณารอเจ้าของร้านสักครู่ {role_mention}\nเจ้าของร้านจะมารับเรื่องและกรอก Player ID ให้ครับ",
-                color=discord.Color.blue()
-            )
-            await interaction.response.send_message(embed=embed, view=AdminSetIDView(interaction.user.id))
+    async def sub_has_player_id(self, interaction: discord.Interaction):
+        user_id = str(interaction.user.id)
+        if user_id not in player_db:
+            await interaction.response.send_message("❌ คุณยังไม่มี Player ID ในระบบ กรุณากดปุ่ม 'ขอPlayer ID' ก่อนครับ!", ephemeral=True)
+            return
 
-    @discord.ui.button(label="มีPlayer ID ต้องการเช่า", style=discord.ButtonStyle.success, custom_id="sub_has_player_id")
-    async def sub_has_player_id(self, interaction: discord.Interaction, button: Button):
-        for item in self.children:
-            item.disabled = True
+        for child in self.children:
+            child.disabled = True
         await interaction.message.edit(view=self)
 
         role_mention = f"<@&{ADMIN_ROLE_ID}>"
@@ -293,12 +309,15 @@ class TicketTopicView(View):
             item.disabled = True
         await interaction.message.edit(view=self)
 
+        user_id = str(interaction.user.id)
+        user_has_id = user_id in player_db
+
         embed = discord.Embed(
             title="🎮 เลือกตัวเลือกการเช่าเล่นเกม",
             description="กรุณาเลือกตัวเลือกที่ต้องการด้านล่างได้เลยครับ",
             color=discord.Color.blue()
         )
-        await interaction.response.send_message(embed=embed, view=RentGameSubTopicView())
+        await interaction.response.send_message(embed=embed, view=RentGameSubTopicView(user_has_id=user_has_id))
 
     @discord.ui.button(label="สอบถามเรื่องทั่วไป", style=discord.ButtonStyle.primary, custom_id="topic_general_v4")
     async def topic_general(self, interaction: discord.Interaction, button: Button):
@@ -532,7 +551,6 @@ async def sync_data_from_channel():
 # --- 9. ระบบ Event หลักของบอท ---
 @bot.event
 async def on_ready():
-    # โหลด Views ต่างๆ ให้ทำงานได้แม้บอทจะรีสตาร์ท
     bot.add_view(OpenTicketView())
     bot.add_view(CloseTicketView())
     bot.add_view(VerifyView())
@@ -542,7 +560,6 @@ async def on_ready():
     bot.add_view(CheckIDInTicketView())
     bot.add_view(HasIDToRentView())
     
-    # ⚠️ ลงทะเบียน Slash Commands ไปยัง Discord
     try:
         synced = await bot.tree.sync()
         print(f"✅ Sync Slash Commands เรียบร้อยแล้ว จำนวน {len(synced)} คำสั่ง")
@@ -601,11 +618,10 @@ async def on_member_remove(member: discord.Member):
 
 # --- 10. Slash Commands (คำสั่งรหัส /) ---
 
-# 10.1 คำสั่งดึงไฟล์รายงานสรุปสถานะ
 @bot.tree.command(name="idlist", description="ส่งไฟล์สรุปรายงานสถานะสมาชิกทั้งหมด (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def export_id_list(interaction: discord.Interaction):
-    await interaction.response.defer() # ป้องกันคำสั่ง Timeout
+    await interaction.response.defer()
     guild = interaction.guild
     file_path = "player_ids_summary.txt"
     
@@ -647,7 +663,6 @@ async def export_id_list(interaction: discord.Interaction):
     if os.path.exists(file_path):
         os.remove(file_path)
 
-# 10.2 คำสั่งเช็กข้อมูลผู้ใช้รายคน
 @bot.tree.command(name="checkuser", description="ตรวจสอบข้อมูล Player ID และสถานะของสมาชิก (เฉพาะแอดมิน)")
 @app_commands.describe(member="เลือกสมาชิกที่ต้องการตรวจสอบ")
 @app_commands.checks.has_permissions(administrator=True)
@@ -672,7 +687,6 @@ async def check_user(interaction: discord.Interaction, member: discord.Member):
     
     await interaction.response.send_message(embed=embed)
 
-# 10.3 คำสั่งส่งแผงเปิดตั๋ว
 @bot.tree.command(name="ticket", description="ส่งแผงข้อความกดเปิดตั๋วเช่าคอม/เช่าเกม (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket(interaction: discord.Interaction):
@@ -687,7 +701,6 @@ async def ticket(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงกดตั๋วสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=OpenTicketView())
 
-# 10.4 คำสั่งส่งแผงยืนยันตัวตนรับยศ
 @bot.tree.command(name="setupverify", description="ส่งแผงข้อความกดยืนยันตัวตนรับยศลูกค้า (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def setupverify(interaction: discord.Interaction):
@@ -699,7 +712,6 @@ async def setupverify(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงยืนยันตัวตนสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=VerifyView())
 
-# 10.5 คำสั่งรีเซ็ตข้อมูล
 @bot.tree.command(name="reset_id", description="รีเซ็ตข้อมูล Player ID ทั้งหมดในระบบ (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_data(interaction: discord.Interaction):
