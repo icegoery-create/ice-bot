@@ -71,10 +71,13 @@ def load_data():
                             "updated_at": datetime.now(timezone.utc).isoformat(),
                             "status": "green",
                             "dm_sent": False,
+                            "dm_blocked": False,
                             "countdown_start": None
                         }
                     else:
                         migrated_data[uid] = val
+                        if "dm_blocked" not in migrated_data[uid]:
+                            migrated_data[uid]["dm_blocked"] = False
                 return migrated_data
         except Exception:
             return {}
@@ -158,6 +161,7 @@ class DMResponseView(View):
             player_db[self.user_id_str]["status"] = "green"
             player_db[self.user_id_str]["updated_at"] = datetime.now(timezone.utc).isoformat()
             player_db[self.user_id_str]["dm_sent"] = False
+            player_db[self.user_id_str]["dm_blocked"] = False
             player_db[self.user_id_str]["countdown_start"] = None
             save_data(player_db)
 
@@ -212,6 +216,7 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "status": "green",
             "dm_sent": False,
+            "dm_blocked": False,
             "countdown_start": None
         }
         save_data(player_db)
@@ -523,8 +528,10 @@ async def background_status_checker():
         elapsed = now - updated_at
         status = info.get("status", "green")
         dm_sent = info.get("dm_sent", False)
+        dm_blocked = info.get("dm_blocked", False)
         countdown_start = info.get("countdown_start")
 
+        # ⚡ 1. เข้าช่วงสีเหลือง -> พยายามส่ง DM
         if status == "green" and elapsed >= YELLOW_THRESHOLD and not dm_sent:
             try:
                 embed_dm = discord.Embed(
@@ -538,24 +545,35 @@ async def background_status_checker():
                     ),
                     color=discord.Color.gold()
                 )
-                await member.send(embed=embed_dm, view=DMResponseView(user_id_str))
+                await member.send(embed_dm, view=DMResponseView(user_id_str))
                 
                 info["status"] = "yellow"
                 info["dm_sent"] = True
+                info["dm_blocked"] = False
                 save_data(player_db)
                 
             except discord.Forbidden:
-                info["status"] = "black"
+                # 📌 หากปิด DM: ให้เปลี่ยนเป็นสีเหลืองไปก่อน แต่จำไว้ว่า dm_blocked = True
+                info["status"] = "yellow"
                 info["dm_sent"] = True
+                info["dm_blocked"] = True
                 save_data(player_db)
             
             await asyncio.sleep(DM_COOLDOWN)
 
-        elif status == "yellow" and elapsed >= RED_THRESHOLD and not countdown_start:
-            info["status"] = "red"
-            info["countdown_start"] = now.isoformat()
-            save_data(player_db)
+        # ⚡ 2. เข้าช่วงสีแดง -> เช็กว่าปิด DM หรือไม่
+        elif status == "yellow" and elapsed >= RED_THRESHOLD:
+            if dm_blocked:
+                # 🖤 ถ้าปิด DM: ย้ายไปอยู่สถานะสีดำทันทีเมื่อถึงเวลาสีแดง
+                info["status"] = "black"
+                save_data(player_db)
+            else:
+                # 🔴 ถ้าเปิด DM: ย้ายไปอยู่สีแดง และเริ่มนับถอยหลัง 5 วัน
+                info["status"] = "red"
+                info["countdown_start"] = now.isoformat()
+                save_data(player_db)
 
+        # ⚡ 3. สถานะสีแดง -> หมดเวลานับถอยหลัง
         elif status == "red" and countdown_start:
             cd_start_time = datetime.fromisoformat(countdown_start)
             if cd_start_time.tzinfo is None:
@@ -597,6 +615,7 @@ async def sync_data_from_channel():
                                 "updated_at": datetime.now(timezone.utc).isoformat(),
                                 "status": "green",
                                 "dm_sent": False,
+                                "dm_blocked": False,
                                 "countdown_start": None
                             }
                     except Exception:
@@ -681,15 +700,16 @@ async def export_id_list(interaction: discord.Interaction):
     guild = interaction.guild
     file_path = "player_ids_summary.txt"
     
-    # 📌 คำนวณป้ายบอกเกณฑ์เวลาของแต่ละสถานะตาม TESTING_MODE
     if TESTING_MODE:
         green_time_label = "น้อยกว่า 1 นาที"
         yellow_time_label = "1 - 3 นาที"
         red_time_label = "มากกว่า 3 นาทีขึ้นไป"
+        black_time_label = "ถึงเวลา 3 นาทีขึ้นไปแต่ปิด DM"
     else:
         green_time_label = "น้อยกว่า 3 เดือน 15 วัน"
         yellow_time_label = "3 เดือน 15 วัน - 6 เดือน"
         red_time_label = "มากกว่า 6 เดือนขึ้นไป"
+        black_time_label = "ถึงเวลา 6 เดือนขึ้นไปแต่ปิด DM"
 
     with open(file_path, "w", encoding="utf-8-sig") as f:
         f.write("=== รายงานสถานะ Player ID และสมาชิก ICE Cloud Gaming ===\n\n")
@@ -721,7 +741,7 @@ async def export_id_list(interaction: discord.Interaction):
             else:
                 gray_list.append(f"⚪ [{member.display_name}] | อยู่ในดิส: {time_spent}")
 
-        f.write("--- 🖤 สถานะสีดำ (ปิด DM / ติดต่อไม่ได้) ---\n" + ("\n".join(black_list) or "ไม่มี") + "\n\n")
+        f.write(f"--- 🖤 สถานะสีดำ (ปิด DM / ติดต่อไม่ได้) [เกณฑ์เวลา: {black_time_label}] ---\n" + ("\n".join(black_list) or "ไม่มี") + "\n\n")
         f.write(f"--- 🔴 สถานะสีแดง (นานมาก / รอการจัดการ) [เกณฑ์เวลา: {red_time_label}] ---\n" + ("\n".join(red_list) or "ไม่มี") + "\n\n")
         f.write(f"--- 🟡 สถานะสีเหลือง (กลางๆ / กำลังแจ้งเตือน) [เกณฑ์เวลา: {yellow_time_label}] ---\n" + ("\n".join(yellow_list) or "ไม่มี") + "\n\n")
         f.write(f"--- 🟢 สถานะสีเขียว (สบายๆ / ใช้งานปกติ) [เกณฑ์เวลา: {green_time_label}] ---\n" + ("\n".join(green_list) or "ไม่มี") + "\n\n")
