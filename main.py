@@ -592,7 +592,9 @@ async def background_status_checker():
                     ),
                     color=discord.Color.gold()
                 )
-                await member.send(embed_dm, view=DMResponseView(user_id_str))
+
+                # ⚡ แก้จุดไส้ไก่โผล่: ใส่ embed=embed_dm เพื่อส่งการ์ดให้อ่านได้สวยงามใน DM
+                await member.send(embed=embed_dm, view=DMResponseView(user_id_str))
                 
                 info["status"] = "yellow"
                 info["dm_sent"] = True
@@ -740,7 +742,7 @@ async def on_member_remove(member: discord.Member):
 
 # --- 10. Slash Commands (คำสั่งรหัส /) ---
 
-# 10.1 คำสั่งลบ Player ID รายบุคคล (ลบข้อมูล + ลบการ์ด Log ในช่องบันทึกข้อมูลเฉพาะของคนที่ถูกลบ)
+# 10.1 คำสั่งลบ Player ID รายบุคคล
 @bot.tree.command(name="delete_id", description="ลบข้อมูล Player ID ของสมาชิกรายบุคคล (เฉพาะแอดมิน)")
 @app_commands.describe(
     member1="เลือกสมาชิกคนที่ 1 ที่ต้องการลบ (หรือพิมพ์ค้นหา)",
@@ -802,7 +804,7 @@ async def delete_user_id(
 
     save_data(player_db)
 
-    # สแกนลบการ์ด Log ในช่อง #บันทึกข้อมูลลูกค้า เฉพาะของคนที่ถูกลบ
+    # ลบการ์ด Log ในช่อง #บันทึกข้อมูลลูกค้า เฉพาะของคนที่ถูกลบ
     if processed_uids and guild:
         log_channel = guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
@@ -830,7 +832,7 @@ async def delete_user_id(
     else:
         await interaction.response.send_message("❌ ไม่พบข้อมูล Player ID ของสมาชิกที่เลือกในระบบครับ", ephemeral=True)
 
-# 10.2 คำสั่งลบข้อความในช่องปัจจุบันทั้งหมดอัตโนมัติ (/clear - ไม่ต้องพิมพ์ระบุจำนวน)
+# 10.2 คำสั่งเคลียร์ลบข้อความในช่องปัจจุบันทั้งหมด (/clear)
 @bot.tree.command(name="clear", description="เคลียร์ลบข้อความทั้งหมดในช่องปัจจุบันทันที (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def clear_messages(interaction: discord.Interaction):
