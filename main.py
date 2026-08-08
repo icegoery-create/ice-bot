@@ -46,7 +46,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- ID ค่าคงที่ของระบบ ---
 LOG_CHANNEL_ID = 1524639966162845787      # ช่องบันทึกข้อมูลลูกค้า (เก็บเฉพาะการ์ดบันทึก ID)
-ALERT_CHANNEL_ID = 1535506088152010783    # ⚡ ช่องแจ้งเตือน (รับแจ้งเตือนลบไฟล์ / แจ้งเตือนจาก DM)
+ALERT_CHANNEL_ID = 1535506088152010783    # ช่องแจ้งเตือน (รับแจ้งเตือนลบไฟล์ / แจ้งเตือนจาก DM)
 WELCOME_CHANNEL_ID = 1524635764556697680  # ช่องยินดีต้อนรับ
 LEAVE_CHANNEL_ID = 1533091589532942526    # ช่องแจ้งคนออกจากเซิร์ฟเวอร์
 CUSTOMER_ROLE_ID = 1530869786169442426    # ID ยศลูกค้า
@@ -94,22 +94,53 @@ def save_data(data):
 
 player_db = load_data()
 
-# --- ฟังก์ชันช่วยคำนวณเวลา ---
+# --- ฟังก์ชันช่วยคำนวณเวลาอยู่ในดิสคอร์ด ---
 def get_time_string(joined_at):
     if not joined_at:
         return "ไม่ทราบข้อมูล"
-    now = discord.utils.utcnow()
+    now = datetime.now(timezone.utc)
+    if joined_at.tzinfo is None:
+        joined_at = joined_at.replace(tzinfo=timezone.utc)
     duration = now - joined_at
     days = duration.days
     hours = duration.seconds // 3600
+    minutes = (duration.seconds % 3600) // 60
     if days >= 30:
         months = days // 30
         rem_days = days % 30
         return f"{months} เดือน {rem_days} วัน ({days} วัน)"
     elif days > 0:
         return f"{days} วัน {hours} ชม."
+    elif hours > 0:
+        return f"{hours} ชม. {minutes} นาที"
     else:
-        return f"{hours} ชม."
+        return f"{minutes} นาที"
+
+# --- ฟังก์ชันช่วยคำนวณระยะเวลาในสถานะปัจจุบัน ---
+def get_status_duration_string(updated_at_str):
+    if not updated_at_str:
+        return "ไม่ทราบข้อมูล"
+    try:
+        updated_at = datetime.fromisoformat(updated_at_str)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        duration = now - updated_at
+        days = duration.days
+        hours = duration.seconds // 3600
+        minutes = (duration.seconds % 3600) // 60
+        if days >= 30:
+            months = days // 30
+            rem_days = days % 30
+            return f"{months} เดือน {rem_days} วัน"
+        elif days > 0:
+            return f"{days} วัน {hours} ชม."
+        elif hours > 0:
+            return f"{hours} ชม. {minutes} นาที"
+        else:
+            return f"{minutes} นาที"
+    except Exception:
+        return "ไม่ทราบข้อมูล"
 
 # --- 4. ปุ่มกดตอบกลับใน DM ของลูกค้า ---
 class DMResponseView(View):
@@ -141,14 +172,13 @@ class DMResponseView(View):
         if self.user_id_str in player_db:
             pid = player_db[self.user_id_str].get("player_id", "ไม่ทราบ")
             guild = bot.guilds[0]
-            # ⚡ ย้ายการแจ้งเตือนลงช่อง ALERT_CHANNEL_ID
             alert_channel = guild.get_channel(ALERT_CHANNEL_ID)
             if alert_channel:
                 await alert_channel.send(f"🚨 **แจ้งเตือนจากลูกค้า:** ลูกค้า <@{self.user_id_str}> (Player ID: `{pid}`) กดเลือก **'ไม่ต้องเก็บไฟล์เซฟไว้'** แอดมินสามารถดำเนินการลบไฟล์ได้เลยครับ!")
 
         await interaction.response.send_message("เข้าใจแล้วครับ ไว้โอกาสหน้ามาใช้บริการเช่าเกมได้นะครับ ICE Cloud Gaming พร้อมต้อนรับครับ!", ephemeral=True)
 
-# --- 5. Modal กรอก Player ID (ป้องกัน ID ซ้ำ + ส่งลง Log Channel) ---
+# --- 5. Modal กรอก Player ID ---
 class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค้า"):
     player_id_input = TextInput(
         label="Player ID",
@@ -165,7 +195,7 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
         pid = self.player_id_input.value.strip()
         user_id_str = str(self.target_user_id)
         
-        # 🔍 1. ตรวจสอบว่า Player ID นี้ซ้ำกับผู้ใช้อื่นในระบบหรือไม่
+        # 1. ตรวจสอบว่า Player ID ซ้ำหรือไม่
         for existing_uid, info in player_db.items():
             if existing_uid != user_id_str and info.get("player_id") == pid:
                 await interaction.response.send_message(
@@ -191,7 +221,7 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
             "player_id": pid
         }
 
-        # 3. ส่งบันทึกลงช่อง Log (📁 · บันทึกข้อมูลลูกค้า)
+        # 3. ส่งบันทึกลงช่อง Log
         if interaction.guild:
             log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
             if log_channel:
@@ -202,7 +232,7 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
                 )
                 await log_channel.send(embed=log_embed)
 
-        # 4. ตอบกลับในช่องตั๋ว พร้อมปุ่ม "มีPlayer ID ต้องการเช่า"
+        # 4. ตอบกลับในช่องตั๋ว
         embed = discord.Embed(
             description="หากคุณลูกค้าต้องการเช่าเล่นเกมให้กดปุ่มด้านล่างนี้เพื่อดำเนินการต่อได้เลยครับ :",
             color=discord.Color.blue()
@@ -487,6 +517,9 @@ async def background_status_checker():
             continue
         
         updated_at = datetime.fromisoformat(updated_at_str)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+
         elapsed = now - updated_at
         status = info.get("status", "green")
         dm_sent = info.get("dm_sent", False)
@@ -525,8 +558,10 @@ async def background_status_checker():
 
         elif status == "red" and countdown_start:
             cd_start_time = datetime.fromisoformat(countdown_start)
+            if cd_start_time.tzinfo is None:
+                cd_start_time = cd_start_time.replace(tzinfo=timezone.utc)
+
             if now - cd_start_time >= COUNTDOWN_DURATION:
-                # ⚡ ย้ายการแจ้งเตือนหมดเวลาลงช่อง ALERT_CHANNEL_ID
                 alert_channel = guild.get_channel(ALERT_CHANNEL_ID)
                 if alert_channel:
                     await alert_channel.send(
@@ -646,6 +681,16 @@ async def export_id_list(interaction: discord.Interaction):
     guild = interaction.guild
     file_path = "player_ids_summary.txt"
     
+    # 📌 คำนวณป้ายบอกเกณฑ์เวลาของแต่ละสถานะตาม TESTING_MODE
+    if TESTING_MODE:
+        green_time_label = "น้อยกว่า 1 นาที"
+        yellow_time_label = "1 - 3 นาที"
+        red_time_label = "มากกว่า 3 นาทีขึ้นไป"
+    else:
+        green_time_label = "น้อยกว่า 3 เดือน 15 วัน"
+        yellow_time_label = "3 เดือน 15 วัน - 6 เดือน"
+        red_time_label = "มากกว่า 6 เดือนขึ้นไป"
+
     with open(file_path, "w", encoding="utf-8-sig") as f:
         f.write("=== รายงานสถานะ Player ID และสมาชิก ICE Cloud Gaming ===\n\n")
         
@@ -661,23 +706,25 @@ async def export_id_list(interaction: discord.Interaction):
                 info = player_db[uid]
                 status = info.get("status", "green")
                 pid = info.get("player_id", "-")
-                line = f"[{member.display_name}] ID: {pid} | อยู่มา: {time_spent}"
+                status_dur = get_status_duration_string(info.get("updated_at"))
+                
+                line = f"[{member.display_name}] | ID: {pid} | อยู่ในสถานะนี้: {status_dur} | อยู่ในดิส: {time_spent}"
                 
                 if status == "black":
-                    black_list.append(f"🖤 [ปิด DM] {line}")
+                    black_list.append(f"🖤 {line}")
                 elif status in ["red", "expired"]:
-                    red_list.append(f"🔴 [นานมาก/แดง] {line}")
+                    red_list.append(f"🔴 {line}")
                 elif status == "yellow":
-                    yellow_list.append(f"🟡 [กลางๆ/เหลือง] {line}")
+                    yellow_list.append(f"🟡 {line}")
                 else:
-                    green_list.append(f"🟢 [สบายๆ/เขียว] {line}")
+                    green_list.append(f"🟢 {line}")
             else:
-                gray_list.append(f"⚪ [สีเทา/ไม่มี ID] [{member.display_name}] | อยู่มา: {time_spent}")
+                gray_list.append(f"⚪ [{member.display_name}] | อยู่ในดิส: {time_spent}")
 
         f.write("--- 🖤 สถานะสีดำ (ปิด DM / ติดต่อไม่ได้) ---\n" + ("\n".join(black_list) or "ไม่มี") + "\n\n")
-        f.write("--- 🔴 สถานะสีแดง (นานมาก / รอการจัดการ) ---\n" + ("\n".join(red_list) or "ไม่มี") + "\n\n")
-        f.write("--- 🟡 สถานะสีเหลือง (กลางๆ / กำลังแจ้งเตือน) ---\n" + ("\n".join(yellow_list) or "ไม่มี") + "\n\n")
-        f.write("--- 🟢 สถานะสีเขียว (สบายๆ / ใช้งานปกติ) ---\n" + ("\n".join(green_list) or "ไม่มี") + "\n\n")
+        f.write(f"--- 🔴 สถานะสีแดง (นานมาก / รอการจัดการ) [เกณฑ์เวลา: {red_time_label}] ---\n" + ("\n".join(red_list) or "ไม่มี") + "\n\n")
+        f.write(f"--- 🟡 สถานะสีเหลือง (กลางๆ / กำลังแจ้งเตือน) [เกณฑ์เวลา: {yellow_time_label}] ---\n" + ("\n".join(yellow_list) or "ไม่มี") + "\n\n")
+        f.write(f"--- 🟢 สถานะสีเขียว (สบายๆ / ใช้งานปกติ) [เกณฑ์เวลา: {green_time_label}] ---\n" + ("\n".join(green_list) or "ไม่มี") + "\n\n")
         f.write("--- ⚪ สถานะสีเทา (ไม่มี Player ID) ---\n" + ("\n".join(gray_list) or "ไม่มี") + "\n")
 
     await interaction.followup.send("📊 **รายงานสรุปสถานะสมาชิกทั้งหมดจัดเรียงตามลำดับความสำคัญครับ:**", file=discord.File(file_path))
@@ -695,15 +742,17 @@ async def check_user(interaction: discord.Interaction, member: discord.Member):
         info = player_db[user_id_str]
         pid = info.get("player_id", "-")
         status = info.get("status", "green")
+        status_dur = get_status_duration_string(info.get("updated_at"))
     else:
         pid = "❌ ไม่มีข้อมูล / ไม่เคยขอ ID"
         status = "gray (สีเทา)"
+        status_dur = "ไม่มีข้อมูล"
 
     embed = discord.Embed(title="🔎 ตรวจสอบข้อมูลสมาชิก", color=discord.Color.blue())
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="👤 ชื่อสมาชิก", value=f"{member.mention} (`{member.name}`)", inline=False)
     embed.add_field(name="🎮 Player ID", value=f"`{pid}`", inline=False)
-    embed.add_field(name="🎨 สถานะปัจจุบัน", value=f"`{status}`", inline=False)
+    embed.add_field(name="🎨 สถานะปัจจุบัน", value=f"`{status}` (อยู่ในสถานะนี้มา: `{status_dur}`)", inline=False)
     embed.add_field(name="⏱️ ระยะเวลาที่อยู่ในดิสคอร์ด", value=f"`{time_spent}`", inline=False)
     
     await interaction.response.send_message(embed=embed)
