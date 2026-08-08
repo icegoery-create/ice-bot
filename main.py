@@ -553,7 +553,6 @@ async def background_status_checker():
                 save_data(player_db)
                 
             except discord.Forbidden:
-                # 📌 หากปิด DM: ให้เปลี่ยนเป็นสีเหลืองไปก่อน แต่จำไว้ว่า dm_blocked = True
                 info["status"] = "yellow"
                 info["dm_sent"] = True
                 info["dm_blocked"] = True
@@ -564,11 +563,9 @@ async def background_status_checker():
         # ⚡ 2. เข้าช่วงสีแดง -> เช็กว่าปิด DM หรือไม่
         elif status == "yellow" and elapsed >= RED_THRESHOLD:
             if dm_blocked:
-                # 🖤 ถ้าปิด DM: ย้ายไปอยู่สถานะสีดำทันทีเมื่อถึงเวลาสีแดง
                 info["status"] = "black"
                 save_data(player_db)
             else:
-                # 🔴 ถ้าเปิด DM: ย้ายไปอยู่สีแดง และเริ่มนับถอยหลัง 5 วัน
                 info["status"] = "red"
                 info["countdown_start"] = now.isoformat()
                 save_data(player_db)
@@ -693,6 +690,55 @@ async def on_member_remove(member: discord.Member):
 
 # --- 10. Slash Commands (คำสั่งรหัส /) ---
 
+# 10.1 คำสั่งลบ Player ID รายบุคคล (ลบทีละคนหรือหลายคนพร้อมกัน)
+@bot.tree.command(name="delete_id", description="ลบข้อมูล Player ID ของสมาชิกรายบุคคล (เฉพาะแอดมิน)")
+@app_commands.describe(
+    member1="เลือกสมาชิกคนที่ 1 ที่ต้องการลบ ID",
+    member2="เลือกสมาชิกคนที่ 2 (ถ้ามี)",
+    member3="เลือกสมาชิกคนที่ 3 (ถ้ามี)",
+    member4="เลือกสมาชิกคนที่ 4 (ถ้ามี)",
+    member5="เลือกสมาชิกคนที่ 5 (ถ้ามี)"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def delete_user_id(
+    interaction: discord.Interaction,
+    member1: discord.Member,
+    member2: discord.Member = None,
+    member3: discord.Member = None,
+    member4: discord.Member = None,
+    member5: discord.Member = None
+):
+    target_members = [m for m in [member1, member2, member3, member4, member5] if m is not None]
+    
+    unique_members = []
+    for m in target_members:
+        if m not in unique_members:
+            unique_members.append(m)
+
+    deleted_text_list = []
+    not_found_text_list = []
+
+    for member in unique_members:
+        user_id_str = str(member.id)
+        if user_id_str in player_db:
+            pid = player_db[user_id_str].get("player_id", "ไม่ทราบ")
+            deleted_text_list.append(f"{member.mention} (Player ID: `{pid}`)")
+            del player_db[user_id_str]
+        else:
+            not_found_text_list.append(f"{member.mention}")
+
+    save_data(player_db)
+
+    if deleted_text_list:
+        result_str = ", ".join(deleted_text_list)
+        msg = f"ระบบได้ลบPlayer ID ของ {result_str} ให้แล้ว"
+        if not_found_text_list:
+            msg += f"\n(หมายเหตุ: {', '.join(not_found_text_list)} ไม่มี Player ID ในระบบอยู่แล้ว)"
+        await interaction.response.send_message(msg)
+    else:
+        await interaction.response.send_message("❌ ไม่พบข้อมูล Player ID ของสมาชิกที่เลือกในระบบครับ", ephemeral=True)
+
+# 10.2 คำสั่งส่งไฟล์สรุปรายงานสถานะ
 @bot.tree.command(name="idlist", description="ส่งไฟล์สรุปรายงานสถานะสมาชิกทั้งหมด (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def export_id_list(interaction: discord.Interaction):
@@ -751,6 +797,7 @@ async def export_id_list(interaction: discord.Interaction):
     if os.path.exists(file_path):
         os.remove(file_path)
 
+# 10.3 คำสั่งเช็กข้อมูลผู้ใช้รายคน
 @bot.tree.command(name="checkuser", description="ตรวจสอบข้อมูล Player ID และสถานะของสมาชิก (เฉพาะแอดมิน)")
 @app_commands.describe(member="เลือกสมาชิกที่ต้องการตรวจสอบ")
 @app_commands.checks.has_permissions(administrator=True)
@@ -777,6 +824,7 @@ async def check_user(interaction: discord.Interaction, member: discord.Member):
     
     await interaction.response.send_message(embed=embed)
 
+# 10.4 คำสั่งส่งแผงเปิดตั๋ว
 @bot.tree.command(name="ticket", description="ส่งแผงข้อความกดเปิดตั๋วเช่าคอม/เช่าเกม (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket(interaction: discord.Interaction):
@@ -791,6 +839,7 @@ async def ticket(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงกดตั๋วสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=OpenTicketView())
 
+# 10.5 คำสั่งส่งแผงยืนยันตัวตนรับยศ
 @bot.tree.command(name="setupverify", description="ส่งแผงข้อความกดยืนยันตัวตนรับยศลูกค้า (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def setupverify(interaction: discord.Interaction):
@@ -802,6 +851,7 @@ async def setupverify(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงยืนยันตัวตนสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=VerifyView())
 
+# 10.6 คำสั่งรีเซ็ตข้อมูลทั้งหมด
 @bot.tree.command(name="reset_id", description="รีเซ็ตข้อมูล Player ID ทั้งหมดในระบบ (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_data(interaction: discord.Interaction):
