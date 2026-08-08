@@ -45,8 +45,9 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- ID ค่าคงที่ของระบบ ---
-LOG_CHANNEL_ID = 1524639966162845787      # ช่องบันทึกข้อมูลลูกค้า (เก็บเฉพาะการ์ดบันทึก ID)
-ALERT_CHANNEL_ID = 1535506088152010783    # ช่องแจ้งเตือน (รับแจ้งเตือนลบไฟล์ / แจ้งเตือนจาก DM)
+GUILD_ID = 1524627599416889397            # ID เซิร์ฟเวอร์ ICE Cloud Gaming
+LOG_CHANNEL_ID = 1524639966162845787      # ช่องบันทึกข้อมูลลูกค้า
+ALERT_CHANNEL_ID = 1535506088152010783    # ช่องแจ้งเตือน
 WELCOME_CHANNEL_ID = 1524635764556697680  # ช่องยินดีต้อนรับ
 LEAVE_CHANNEL_ID = 1533091589532942526    # ช่องแจ้งคนออกจากเซิร์ฟเวอร์
 CUSTOMER_ROLE_ID = 1530869786169442426    # ID ยศลูกค้า
@@ -97,20 +98,27 @@ def save_data(data):
 
 player_db = load_data()
 
-# --- ฟังก์ชันช่วย Autocomplete ดึงรายชื่อคนที่มี Player ID มาขึ้นเป็นเมนูเลือกอัตโนมัติ ---
+# --- ฟังก์ชัน Autocomplete ดึงรายชื่อจาก player_db โดยตรง (ทำงานได้ทุกช่อง แม้จะเป็น Private) ---
 async def player_id_autocomplete(
     interaction: discord.Interaction,
     current: str
 ) -> list[app_commands.Choice[str]]:
     choices = []
-    if not interaction.guild:
-        return choices
-
+    
     for user_id_str, info in player_db.items():
         pid = info.get("player_id", "-")
-        member = interaction.guild.get_member(int(user_id_str))
+        user_id_int = int(user_id_str)
         
-        display_name = member.display_name if member else f"ID: {user_id_str}"
+        member = interaction.guild.get_member(user_id_int) if interaction.guild else None
+        user = bot.get_user(user_id_int)
+
+        if member:
+            display_name = member.display_name
+        elif user:
+            display_name = user.name
+        else:
+            display_name = f"ID: {user_id_str}"
+
         label = f"👤 {display_name} | Player ID: {pid}"
         if len(label) > 100:
             label = label[:97] + "..."
@@ -226,7 +234,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
         pid = self.player_id_input.value.strip()
         user_id_str = str(self.target_user_id)
         
-        # 1. ตรวจสอบว่า Player ID ซ้ำหรือไม่
         for existing_uid, info in player_db.items():
             if existing_uid != user_id_str and info.get("player_id") == pid:
                 await interaction.response.send_message(
@@ -237,7 +244,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
                 )
                 return
 
-        # 2. บันทึกลงฐานข้อมูล local JSON
         player_db[user_id_str] = {
             "player_id": pid,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -253,7 +259,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
             "player_id": pid
         }
 
-        # 3. ส่งบันทึกลงช่อง Log
         if interaction.guild:
             log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
             if log_channel:
@@ -264,7 +269,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
                 )
                 await log_channel.send(embed=log_embed)
 
-        # 4. ตอบกลับในช่องตั๋ว
         embed = discord.Embed(
             description="หากคุณลูกค้าต้องการเช่าเล่นเกมให้กดปุ่มด้านล่างนี้เพื่อดำเนินการต่อได้เลยครับ :",
             color=discord.Color.blue()
@@ -558,7 +562,6 @@ async def background_status_checker():
         dm_blocked = info.get("dm_blocked", False)
         countdown_start = info.get("countdown_start")
 
-        # ⚡ 1. เข้าช่วงสีเหลือง -> พยายามส่ง DM
         if status == "green" and elapsed >= YELLOW_THRESHOLD and not dm_sent:
             try:
                 embed_dm = discord.Embed(
@@ -587,7 +590,6 @@ async def background_status_checker():
             
             await asyncio.sleep(DM_COOLDOWN)
 
-        # ⚡ 2. เข้าช่วงสีแดง -> เช็กว่าปิด DM หรือไม่
         elif status == "yellow" and elapsed >= RED_THRESHOLD:
             if dm_blocked:
                 info["status"] = "black"
@@ -597,7 +599,6 @@ async def background_status_checker():
                 info["countdown_start"] = now.isoformat()
                 save_data(player_db)
 
-        # ⚡ 3. สถานะสีแดง -> หมดเวลานับถอยหลัง
         elif status == "red" and countdown_start:
             cd_start_time = datetime.fromisoformat(countdown_start)
             if cd_start_time.tzinfo is None:
@@ -659,11 +660,16 @@ async def on_ready():
     bot.add_view(CheckIDInTicketView())
     bot.add_view(HasIDToRentView())
     
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ Sync Slash Commands เรียบร้อยแล้ว จำนวน {len(synced)} คำสั่ง")
-    except Exception as e:
-        print(f"❌ เกิดข้อผิดพลาดในการ Sync Slash Commands: {e}")
+    guild_obj = discord.Object(id=GUILD_ID)
+    
+    # ⚡ 1. ล้างคำสั่ง Global เก่าทิ้งทั้งหมด เพื่อแก้ปัญหาคำสั่งเบิ้ลซ้ำ 2 อัน
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync(guild=None)
+    
+    # ⚡ 2. คัดลอกและ Sync คำสั่งเข้าเซิร์ฟเวอร์โดยตรงทันที 0 วินาที
+    bot.tree.copy_global_to(guild=guild_obj)
+    synced = await bot.tree.sync(guild=guild_obj)
+    print(f"✅ ล้างคำสั่งเบิ้ลสำเร็จ! Sync คำสั่งเข้าเซิร์ฟเวอร์เรียบร้อย จำนวน {len(synced)} คำสั่ง")
 
     if not background_status_checker.is_running():
         background_status_checker.start()
@@ -717,10 +723,10 @@ async def on_member_remove(member: discord.Member):
 
 # --- 10. Slash Commands (คำสั่งรหัส /) ---
 
-# 10.1 คำสั่งลบ Player ID รายบุคคล (พร้อมระบบ Autocomplete เด้งรายชื่อให้อัตโนมัติ)
+# 10.1 คำสั่งลบ Player ID รายบุคคล (พิมพ์ย่อปุ๊บ ค้นหาเจอทั้งในห้องส่วนตัวและห้องปกติ)
 @bot.tree.command(name="delete_id", description="ลบข้อมูล Player ID ของสมาชิกรายบุคคล (เฉพาะแอดมิน)")
 @app_commands.describe(
-    member1="เลือกสมาชิกคนแรกที่ต้องการลบ (หรือพิมพ์ค้นหา)",
+    member1="เลือกสมาชิกคนที่ 1 ที่ต้องการลบ (หรือพิมพ์ค้นหา)",
     member2="เลือกสมาชิกคนที่ 2 (ถ้ามี)",
     member3="เลือกสมาชิกคนที่ 3 (ถ้ามี)",
     member4="เลือกสมาชิกคนที่ 4 (ถ้ามี)",
@@ -753,11 +759,9 @@ async def delete_user_id(
         clean_inp = inp.strip("<@!> ")
         target_uid = None
 
-        # 1. ค้นหาจาก User ID (กรณีเลือกจาก Autocomplete หรือวาง ID)
         if clean_inp.isdigit() and clean_inp in player_db:
             target_uid = clean_inp
         else:
-            # 2. ค้นหาจาก Player ID หรือชื่อดิสคอร์ด
             for uid, info in player_db.items():
                 pid = info.get("player_id", "")
                 mem = guild.get_member(int(uid)) if guild else None
