@@ -7,23 +7,23 @@ from threading import Thread
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from discord.ui import Button, View, Modal, TextInput
+from discord.ui import Button, View, Modal, TextInput, Select
 
-# --- ⚙️ สวิตช์ Testing Mode (เปิด True เพื่อย่อเวลาไว้เทสระบบ / ปิด False เมื่อใช้งานจริง) ---
+# --- ⚙️ สวิตช์ Testing Mode ---
 TESTING_MODE = True
 
 if TESTING_MODE:
-    YELLOW_THRESHOLD = timedelta(minutes=1)   # โหมดเทส: 1 นาทีกลายเป็นสีเหลือง
-    RED_THRESHOLD = timedelta(minutes=3)      # โหมดเทส: 3 นาทีกลายเป็นสีแดง
-    COUNTDOWN_DURATION = timedelta(seconds=30)# โหมดเทส: นับถอยหลัง 30 วินาที
-    DM_COOLDOWN = 5                            # โหมดเทส: เว้นระยะส่ง DM 5 วินาที
+    YELLOW_THRESHOLD = timedelta(minutes=1)
+    RED_THRESHOLD = timedelta(minutes=3)
+    COUNTDOWN_DURATION = timedelta(seconds=30)
+    DM_COOLDOWN = 5
 else:
-    YELLOW_THRESHOLD = timedelta(days=105)    # 3 เดือน 15 วัน
-    RED_THRESHOLD = timedelta(days=180)       # 6 เดือน
-    COUNTDOWN_DURATION = timedelta(days=5)    # 5 วัน
-    DM_COOLDOWN = 900                         # 15 นาที
+    YELLOW_THRESHOLD = timedelta(days=105)
+    RED_THRESHOLD = timedelta(days=180)
+    COUNTDOWN_DURATION = timedelta(days=5)
+    DM_COOLDOWN = 900
 
-# --- 1. Web Server หลอก Render ให้บอทออนไลน์ตลอด 24 ชม. ---
+# --- 1. Web Server ---
 app = Flask('')
 
 @app.route('/', methods=['GET', 'HEAD'])
@@ -45,14 +45,13 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- ID ค่าคงที่ของระบบ ---
-LOG_CHANNEL_ID = 1524639966162845787      # ช่องบันทึกข้อมูลลูกค้า (เก็บเฉพาะการ์ดบันทึก ID)
-ALERT_CHANNEL_ID = 1535506088152010783    # ช่องแจ้งเตือน (รับแจ้งเตือนลบไฟล์ / แจ้งเตือนจาก DM)
-WELCOME_CHANNEL_ID = 1524635764556697680  # ช่องยินดีต้อนรับ
-LEAVE_CHANNEL_ID = 1533091589532942526    # ช่องแจ้งคนออกจากเซิร์ฟเวอร์
-CUSTOMER_ROLE_ID = 1530869786169442426    # ID ยศลูกค้า
-ADMIN_ROLE_ID = 1524631721641771050       # ID ยศเจ้าของร้าน/แอดมิน
+LOG_CHANNEL_ID = 1524639966162845787
+ALERT_CHANNEL_ID = 1535506088152010783
+WELCOME_CHANNEL_ID = 1524635764556697680
+LEAVE_CHANNEL_ID = 1533091589532942526
+CUSTOMER_ROLE_ID = 1530869786169442426
+ADMIN_ROLE_ID = 1524631721641771050
 
-# ตัวแปรจำ Player ID ชั่วคราวระหว่างเปิดตั๋ว
 temp_ticket_data = {}
 
 # --- 3. ระบบจัดการไฟล์ฐานข้อมูล local JSON ---
@@ -96,43 +95,6 @@ def save_data(data):
         json.dump(clean_data, f, ensure_ascii=False, indent=4)
 
 player_db = load_data()
-
-# --- ฟังก์ชันช่วย Autocomplete ดึงรายชื่อคนที่มี Player ID มาขึ้นเป็นเมนูเลือกอัตโนมัติ ---
-async def player_id_autocomplete(
-    interaction: discord.Interaction,
-    current: str
-) -> list[app_commands.Choice[str]]:
-    choices = []
-    if not interaction.guild:
-        return choices
-
-    for user_id_str, info in player_db.items():
-        pid = info.get("player_id", "-")
-        user_id_int = int(user_id_str)
-        
-        # ⚡ ดึงข้อมูลจาก Cache เซิร์ฟเวอร์ หากไม่เจอให้ดึงจากสถิติผู้ใช้ของบอท
-        member = interaction.guild.get_member(user_id_int)
-        user = bot.get_user(user_id_int)
-
-        if member:
-            display_name = member.display_name
-        elif user:
-            display_name = user.name
-        else:
-            display_name = f"ID: {user_id_str}"
-
-        label = f"👤 {display_name} | Player ID: {pid}"
-        if len(label) > 100:
-            label = label[:97] + "..."
-
-        search_target = f"{display_name} {pid} {user_id_str}".lower()
-        if not current or current.lower() in search_target:
-            choices.append(app_commands.Choice(name=label, value=user_id_str))
-
-        if len(choices) >= 25:
-            break
-
-    return choices
 
 # --- ฟังก์ชันช่วยคำนวณเวลาอยู่ในดิสคอร์ด ---
 def get_time_string(joined_at):
@@ -236,7 +198,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
         pid = self.player_id_input.value.strip()
         user_id_str = str(self.target_user_id)
         
-        # 1. ตรวจสอบว่า Player ID ซ้ำหรือไม่
         for existing_uid, info in player_db.items():
             if existing_uid != user_id_str and info.get("player_id") == pid:
                 await interaction.response.send_message(
@@ -247,7 +208,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
                 )
                 return
 
-        # 2. บันทึกลงฐานข้อมูล local JSON
         player_db[user_id_str] = {
             "player_id": pid,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -263,7 +223,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
             "player_id": pid
         }
 
-        # 3. ส่งบันทึกลงช่อง Log
         if interaction.guild:
             log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
             if log_channel:
@@ -274,7 +233,6 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
                 )
                 await log_channel.send(embed=log_embed)
 
-        # 4. ตอบกลับในช่องตั๋ว
         embed = discord.Embed(
             description="หากคุณลูกค้าต้องการเช่าเล่นเกมให้กดปุ่มด้านล่างนี้เพื่อดำเนินการต่อได้เลยครับ :",
             color=discord.Color.blue()
@@ -307,7 +265,43 @@ class AdminSetIDView(View):
 
         await interaction.response.send_modal(PlayerIDModal(user_id))
 
-# --- 6. ระบบเช็ก ID และตัวเลือกเช่าเกม ---
+# --- 6. ระบบ Dropdown Menu สำหรับลบ Player ID ในห้อง Private ได้จริง ---
+class DeletePlayerSelect(Select):
+    def __init__(self, options_list):
+        super().__init__(
+            placeholder="เลือกลูกค้าที่ต้องการลบ Player ID...",
+            min_values=1,
+            max_values=min(len(options_list), 5), # เลือกได้สูงสุด 5 คนพร้อมกัน
+            options=options_list
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        deleted_text_list = []
+        guild = interaction.guild
+
+        for selected_uid in self.values:
+            if selected_uid in player_db:
+                pid = player_db[selected_uid].get("player_id", "ไม่ทราบ")
+                mem = guild.get_member(int(selected_uid)) if guild else None
+                mention_str = mem.mention if mem else f"<@{selected_uid}>"
+                deleted_text_list.append(f"{mention_str} (Player ID: `{pid}`)")
+                del player_db[selected_uid]
+
+        save_data(player_db)
+
+        # ปิดการใช้งาน Dropdown หลังกดเลือกแล้ว
+        self.disabled = True
+        await interaction.message.edit(view=self.view)
+
+        result_str = ", ".join(deleted_text_list)
+        await interaction.response.send_message(f"ระบบได้ลบPlayer ID ของ {result_str} ให้แล้ว")
+
+class DeletePlayerView(View):
+    def __init__(self, options_list):
+        super().__init__(timeout=60)
+        self.add_item(DeletePlayerSelect(options_list))
+
+# --- 7. ระบบเช็ก ID และตัวเลือกเช่าเกม ---
 class CheckIDInTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -541,7 +535,7 @@ class VerifyView(View):
             print(f"Error assigning role: {e}")
             await interaction.response.send_message("❌ เกิดข้อผิดพลาดในการมอบยศ กรุณาแจ้งแอดมิน", ephemeral=True)
 
-# --- 7. พื้นหลังอัจฉริยะ: เช็กสถานะเวลาและคิวส่ง DM ---
+# --- 8. พื้นหลังอัจฉริยะ: เช็กสถานะเวลาและคิวส่ง DM ---
 @tasks.loop(seconds=10)
 async def background_status_checker():
     if not bot.guilds:
@@ -568,7 +562,6 @@ async def background_status_checker():
         dm_blocked = info.get("dm_blocked", False)
         countdown_start = info.get("countdown_start")
 
-        # ⚡ 1. เข้าช่วงสีเหลือง -> พยายามส่ง DM
         if status == "green" and elapsed >= YELLOW_THRESHOLD and not dm_sent:
             try:
                 embed_dm = discord.Embed(
@@ -597,7 +590,6 @@ async def background_status_checker():
             
             await asyncio.sleep(DM_COOLDOWN)
 
-        # ⚡ 2. เข้าช่วงสีแดง -> เช็กว่าปิด DM หรือไม่
         elif status == "yellow" and elapsed >= RED_THRESHOLD:
             if dm_blocked:
                 info["status"] = "black"
@@ -607,7 +599,6 @@ async def background_status_checker():
                 info["countdown_start"] = now.isoformat()
                 save_data(player_db)
 
-        # ⚡ 3. สถานะสีแดง -> หมดเวลานับถอยหลัง
         elif status == "red" and countdown_start:
             cd_start_time = datetime.fromisoformat(countdown_start)
             if cd_start_time.tzinfo is None:
@@ -627,7 +618,7 @@ async def background_status_checker():
 async def before_checker():
     await bot.wait_until_ready()
 
-# --- 8. ระบบซิงค์ข้อมูลย้อนหลัง ---
+# --- 9. ระบบซิงค์ข้อมูลย้อนหลัง ---
 async def sync_data_from_channel():
     await bot.wait_until_ready()
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
@@ -657,7 +648,7 @@ async def sync_data_from_channel():
     save_data(player_db)
     print("✅ ซิงค์ข้อมูลเรียบร้อยแล้ว!")
 
-# --- 9. ระบบ Event หลักของบอท ---
+# --- 10. ระบบ Event หลักของบอท ---
 @bot.event
 async def on_ready():
     bot.add_view(OpenTicketView())
@@ -669,14 +660,6 @@ async def on_ready():
     bot.add_view(CheckIDInTicketView())
     bot.add_view(HasIDToRentView())
     
-    # ⚡ โหลดดึงรายชื่อสมาชิกทุกคนในเซิร์ฟเวอร์มาเก็บไว้ใน Cache (แก้ปัญหาช่อง Private หาคนไม่เจอ)
-    for guild in bot.guilds:
-        try:
-            await guild.chunk()
-            print(f"✅ โหลดข้อมูลสมาชิกในเซิร์ฟเวอร์ {guild.name} ครบทุกคนแล้ว ({len(guild.members)} คน)")
-        except Exception as e:
-            print(f"⚠️ ไม่สามารถ Chunk สมาชิกใน {guild.name} ได้: {e}")
-
     try:
         synced = await bot.tree.sync()
         print(f"✅ Sync Slash Commands เรียบร้อยแล้ว จำนวน {len(synced)} คำสั่ง")
@@ -733,81 +716,48 @@ async def on_member_remove(member: discord.Member):
     embed.set_footer(text="ICE Cloud Gaming - System Notification", icon_url=member.guild.icon.url if member.guild.icon else None)
     await leave_channel.send(embed=embed)
 
-# --- 10. Slash Commands (คำสั่งรหัส /) ---
+# --- 11. Slash Commands (คำสั่งรหัส /) ---
 
-# 10.1 คำสั่งลบ Player ID รายบุคคล (พร้อมระบบ Autocomplete เด้งรายชื่อให้อัตโนมัติ)
+# 11.1 คำสั่งลบ Player ID (สร้าง Dropdown Menu ดึงรายชื่อจากฐานข้อมูลโดยตรง)
 @bot.tree.command(name="delete_id", description="ลบข้อมูล Player ID ของสมาชิกรายบุคคล (เฉพาะแอดมิน)")
-@app_commands.describe(
-    member1="เลือกสมาชิกคนแรกที่ต้องการลบ (หรือพิมพ์ค้นหา)",
-    member2="เลือกสมาชิกคนที่ 2 (ถ้ามี)",
-    member3="เลือกสมาชิกคนที่ 3 (ถ้ามี)",
-    member4="เลือกสมาชิกคนที่ 4 (ถ้ามี)",
-    member5="เลือกสมาชิกคนที่ 5 (ถ้ามี)"
-)
-@app_commands.autocomplete(
-    member1=player_id_autocomplete,
-    member2=player_id_autocomplete,
-    member3=player_id_autocomplete,
-    member4=player_id_autocomplete,
-    member5=player_id_autocomplete
-)
 @app_commands.checks.has_permissions(administrator=True)
-async def delete_user_id(
-    interaction: discord.Interaction,
-    member1: str,
-    member2: str = None,
-    member3: str = None,
-    member4: str = None,
-    member5: str = None
-):
-    raw_inputs = [m for m in [member1, member2, member3, member4, member5] if m is not None]
+async def delete_user_id(interaction: discord.Interaction):
+    if not player_db:
+        await interaction.response.send_message("❌ ไม่พบข้อมูล Player ID ใดๆ ในระบบครับ", ephemeral=True)
+        return
+
     guild = interaction.guild
+    options_list = []
 
-    deleted_text_list = []
-    not_found_text_list = []
-    processed_uids = set()
+    for user_id_str, info in player_db.items():
+        pid = info.get("player_id", "-")
+        user_id_int = int(user_id_str)
+        mem = guild.get_member(user_id_int) if guild else None
+        user = bot.get_user(user_id_int)
 
-    for inp in raw_inputs:
-        clean_inp = inp.strip("<@!> ")
-        target_uid = None
-
-        # 1. ค้นหาจาก User ID (กรณีเลือกจาก Autocomplete หรือวาง ID)
-        if clean_inp.isdigit() and clean_inp in player_db:
-            target_uid = clean_inp
+        if mem:
+            name = mem.display_name
+        elif user:
+            name = user.name
         else:
-            # 2. ค้นหาจาก Player ID หรือชื่อดิสคอร์ด
-            for uid, info in player_db.items():
-                pid = info.get("player_id", "")
-                mem = guild.get_member(int(uid)) if guild else None
-                m_name = mem.display_name if mem else ""
-                
-                if inp == pid or inp.lower() == m_name.lower():
-                    target_uid = uid
-                    break
+            name = f"User ID: {user_id_str}"
 
-        if target_uid:
-            if target_uid not in processed_uids:
-                processed_uids.add(target_uid)
-                pid = player_db[target_uid].get("player_id", "ไม่ทราบ")
-                mem = guild.get_member(int(target_uid)) if guild else None
-                mention_str = mem.mention if mem else f"<@{target_uid}>"
-                deleted_text_list.append(f"{mention_str} (Player ID: `{pid}`)")
-                del player_db[target_uid]
-        else:
-            not_found_text_list.append(f"`{inp}`")
+        options_list.append(
+            discord.SelectOption(
+                label=f"{name[:25]}",
+                description=f"Player ID: {pid}",
+                value=user_id_str,
+                emoji="🗑️"
+            )
+        )
 
-    save_data(player_db)
+        if len(options_list) >= 25:
+            break
 
-    if deleted_text_list:
-        result_str = ", ".join(deleted_text_list)
-        msg = f"ระบบได้ลบPlayer ID ของ {result_str} ให้แล้ว"
-        if not_found_text_list:
-            msg += f"\n(หมายเหตุ: {', '.join(not_found_text_list)} ไม่พบในระบบ)"
-        await interaction.response.send_message(msg)
-    else:
-        await interaction.response.send_message("❌ ไม่พบข้อมูล Player ID ของสมาชิกที่เลือกในระบบครับ", ephemeral=True)
+    view = DeletePlayerView(options_list)
+    await interaction.response.send_message("🗑️ **กรุณาเลือกลูกค้าที่ต้องการลบ Player ID จากเมนูด้านล่างนี้:**", view=view, ephemeral=True)
 
-# 10.2 คำสั่งส่งไฟล์สรุปรายงานสถานะ
+# 11.2 คำสั่งส่งไฟล์สรุปรายงานสถานะ
 @bot.tree.command(name="idlist", description="ส่งไฟล์สรุปรายงานสถานะสมาชิกทั้งหมด (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def export_id_list(interaction: discord.Interaction):
@@ -866,7 +816,7 @@ async def export_id_list(interaction: discord.Interaction):
     if os.path.exists(file_path):
         os.remove(file_path)
 
-# 10.3 คำสั่งเช็กข้อมูลผู้ใช้รายคน
+# 11.3 คำสั่งเช็กข้อมูลผู้ใช้รายคน
 @bot.tree.command(name="checkuser", description="ตรวจสอบข้อมูล Player ID และสถานะของสมาชิก (เฉพาะแอดมิน)")
 @app_commands.describe(member="เลือกสมาชิกที่ต้องการตรวจสอบ")
 @app_commands.checks.has_permissions(administrator=True)
@@ -893,7 +843,7 @@ async def check_user(interaction: discord.Interaction, member: discord.Member):
     
     await interaction.response.send_message(embed=embed)
 
-# 10.4 คำสั่งส่งแผงเปิดตั๋ว
+# 11.4 คำสั่งส่งแผงเปิดตั๋ว
 @bot.tree.command(name="ticket", description="ส่งแผงข้อความกดเปิดตั๋วเช่าคอม/เช่าเกม (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket(interaction: discord.Interaction):
@@ -908,7 +858,7 @@ async def ticket(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงกดตั๋วสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=OpenTicketView())
 
-# 10.5 คำสั่งส่งแผงยืนยันตัวตนรับยศ
+# 11.5 คำสั่งส่งแผงยืนยันตัวตนรับยศ
 @bot.tree.command(name="setupverify", description="ส่งแผงข้อความกดยืนยันตัวตนรับยศลูกค้า (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def setupverify(interaction: discord.Interaction):
@@ -920,7 +870,7 @@ async def setupverify(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงยืนยันตัวตนสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=VerifyView())
 
-# 10.6 คำสั่งรีเซ็ตข้อมูลทั้งหมด
+# 11.6 คำสั่งรีเซ็ตข้อมูลทั้งหมด
 @bot.tree.command(name="reset_id", description="รีเซ็ตข้อมูล Player ID ทั้งหมดในระบบ (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_data(interaction: discord.Interaction):
@@ -937,7 +887,7 @@ async def reset_data(interaction: discord.Interaction):
             
     await interaction.response.send_message("🧹 **รีเซ็ตข้อมูล Player ID ทั้งหมดเรียบร้อยแล้ว!**")
 
-# --- 11. ตัวดักจับ Error กรณีผู้ใช้ไม่มีสิทธิ์กดใช้ Slash Command ---
+# --- 12. ตัวดักจับ Error กรณีผู้ใช้ไม่มีสิทธิ์กดใช้ Slash Command ---
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
@@ -945,7 +895,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     else:
         print(f"AppCommand Error: {error}")
 
-# --- 12. เริ่มต้นรันบอท ---
+# --- 13. เริ่มต้นรันบอท ---
 if __name__ == "__main__":
     keep_alive()
     token = os.environ.get("DISCORD_TOKEN")
