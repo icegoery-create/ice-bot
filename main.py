@@ -802,7 +802,7 @@ async def delete_user_id(
 
     save_data(player_db)
 
-    # ⚡ สแกนลบการ์ด Log ในช่อง #บันทึกข้อมูลลูกค้า เฉพาะของคนที่ถูกลบ
+    # สแกนลบการ์ด Log ในช่อง #บันทึกข้อมูลลูกค้า เฉพาะของคนที่ถูกลบ
     if processed_uids and guild:
         log_channel = guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
@@ -830,21 +830,16 @@ async def delete_user_id(
     else:
         await interaction.response.send_message("❌ ไม่พบข้อมูล Player ID ของสมาชิกที่เลือกในระบบครับ", ephemeral=True)
 
-# 10.2 คำสั่งลบข้อความในช่องปัจจุบัน (/clear)
-@bot.tree.command(name="clear", description="ลบข้อความในช่องปัจจุบันตามจำนวนที่กำหนด (เฉพาะแอดมิน)")
-@app_commands.describe(amount="จำนวนข้อความที่ต้องการลบ (เช่น 10, 50, 100)")
+# 10.2 คำสั่งลบข้อความในช่องปัจจุบันทั้งหมดอัตโนมัติ (/clear - ไม่ต้องพิมพ์ระบุจำนวน)
+@bot.tree.command(name="clear", description="เคลียร์ลบข้อความทั้งหมดในช่องปัจจุบันทันที (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
-async def clear_messages(interaction: discord.Interaction, amount: int):
-    if amount <= 0:
-        await interaction.response.send_message("❌ กรุณาระบุจำนวนข้อความที่มากกว่า 0 ครับ", ephemeral=True)
-        return
-
+async def clear_messages(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     try:
-        deleted = await interaction.channel.purge(limit=amount)
-        await interaction.followup.send(f"🧹 ลบข้อความไปทั้งหมด `{len(deleted)}` ข้อความเรียบร้อยแล้วครับ!", ephemeral=True)
+        deleted = await interaction.channel.purge(limit=1000)
+        await interaction.followup.send(f"🧹 เคลียร์ข้อความในช่องนี้เรียบร้อยแล้วครับ! (`{len(deleted)}` ข้อความ)", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการลบข้อความ: {e}", ephemeral=True)
+        await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการเคลียร์ข้อความ: {e}", ephemeral=True)
 
 # 10.3 คำสั่งส่งไฟล์สรุปรายงานสถานะ
 @bot.tree.command(name="idlist", description="ส่งไฟล์สรุปรายงานสถานะสมาชิกทั้งหมด (เฉพาะแอดมิน)")
