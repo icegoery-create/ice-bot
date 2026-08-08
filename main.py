@@ -98,18 +98,16 @@ def save_data(data):
 
 player_db = load_data()
 
-# --- ฟังก์ชัน Autocomplete ป้องกัน Error ปลอดภัย 100% ---
+# --- ฟังก์ชัน Autocomplete ค้นหารายชื่อ ป้องกัน Error ปลอดภัย 100% ---
 async def player_id_autocomplete(
     interaction: discord.Interaction,
     current: str
 ) -> list[app_commands.Choice[str]]:
     choices = []
     try:
-        # สำเนาข้อมูลออกมาป้องกัน RuntimeError ตอนไฟล์ถูกอัปเดตกลางคัน
         db_items = list(player_db.items())
         
         for user_id_str, info in db_items:
-            # ดึง Player ID ป้องกัน crash ทั้งแบบ dict และแบบ string
             if isinstance(info, dict):
                 pid = info.get("player_id", "-")
             else:
@@ -120,7 +118,6 @@ async def player_id_autocomplete(
             except ValueError:
                 continue
 
-            # ดึงชื่อสมาชิก
             member = interaction.guild.get_member(user_id_int) if interaction.guild else None
             user = bot.get_user(user_id_int)
 
@@ -682,14 +679,16 @@ async def on_ready():
     
     guild_obj = discord.Object(id=GUILD_ID)
     
-    # ⚡ 1. ล้างคำสั่ง Global เก่าทิ้งทั้งหมด เพื่อแก้ปัญหาคำสั่งเบิ้ลซ้ำ
-    bot.tree.clear_commands(guild=None)
-    await bot.tree.sync(guild=None)
-    
-    # ⚡ 2. คัดลอกและ Sync คำสั่งเข้าเซิร์ฟเวอร์โดยตรงทันที 0 วินาที
-    bot.tree.copy_global_to(guild=guild_obj)
-    synced = await bot.tree.sync(guild=guild_obj)
-    print(f"✅ ล้างคำสั่งเบิ้ลสำเร็จ! Sync คำสั่งเข้าเซิร์ฟเวอร์เรียบร้อย จำนวน {len(synced)} คำสั่ง")
+    try:
+        # ⚡ 1. ล้างคำสั่ง Global เก่าบนดิสคอร์ดทิ้งเพื่อลบตัวเบิ้ล
+        await bot.http.bulk_upsert_global_commands(bot.application_id, [])
+        
+        # ⚡ 2. คัดลอกและ Sync คำสั่งเข้าเซิร์ฟเวอร์โดยตรงทันที
+        bot.tree.copy_global_to(guild=guild_obj)
+        synced = await bot.tree.sync(guild=guild_obj)
+        print(f"✅ ล้างคำสั่งเบิ้ลสำเร็จ! Sync คำสั่งเข้าเซิร์ฟเวอร์เรียบร้อย จำนวน {len(synced)} คำสั่ง")
+    except Exception as e:
+        print(f"❌ เกิดข้อผิดพลาดในการ Sync Slash Commands: {e}")
 
     if not background_status_checker.is_running():
         background_status_checker.start()
