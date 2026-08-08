@@ -73,12 +73,15 @@ def load_data():
                             "status": "green",
                             "dm_sent": False,
                             "dm_blocked": False,
+                            "dm_message_id": None,
                             "countdown_start": None
                         }
                     else:
                         migrated_data[uid] = val
                         if "dm_blocked" not in migrated_data[uid]:
                             migrated_data[uid]["dm_blocked"] = False
+                        if "dm_message_id" not in migrated_data[uid]:
+                            migrated_data[uid]["dm_message_id"] = None
                 return migrated_data
         except Exception:
             return {}
@@ -98,7 +101,22 @@ def save_data(data):
 
 player_db = load_data()
 
-# --- ฟังก์ชัน Autocomplete ค้นหารายชื่อ ป้องกัน Error ปลอดภัย 100% ---
+# --- ฟังก์ชันสั่งลบข้อความ DM ของลูกค้าที่ค้างอยู่ ---
+async def try_delete_dm_message(user_id_str, msg_id):
+    if not msg_id:
+        return
+    try:
+        user = bot.get_user(int(user_id_str))
+        if not user:
+            user = await bot.fetch_user(int(user_id_str))
+        if user:
+            dm_channel = user.dm_channel or await user.create_dm()
+            msg = await dm_channel.fetch_message(int(msg_id))
+            await msg.delete()
+    except Exception as e:
+        print(f"⚠️ ไม่สามารถลบข้อความ DM ได้ (ลูกค้าอาจลบแชทไปแล้ว): {e}")
+
+# --- ฟังก์ชัน Autocomplete ค้นหารายชื่อ ---
 async def player_id_autocomplete(
     interaction: discord.Interaction,
     current: str
@@ -199,32 +217,42 @@ class DMResponseView(View):
 
     @discord.ui.button(label="📁 เก็บไว้ก่อน", style=discord.ButtonStyle.success, custom_id="dm_keep_file")
     async def keep_file(self, interaction: discord.Interaction, button: Button):
+        # ⚡ ป้องกันกรณีถูกลบ ID ออกจากระบบแล้ว หรือหมดเวลาแล้ว
+        if self.user_id_str not in player_db:
+            await interaction.response.send_message("❌ ข้อความนี้หมดอายุแล้ว หรือ Player ID ของคุณถูกลบออกจากระบบเรียบร้อยแล้ว กรุณาเปิดตั๋วใหม่หากต้องการขอ ID ครับ", ephemeral=True)
+            return
+
         for item in self.children:
             item.disabled = True
         await interaction.message.edit(view=self)
 
-        if self.user_id_str in player_db:
-            player_db[self.user_id_str]["status"] = "green"
-            player_db[self.user_id_str]["updated_at"] = datetime.now(timezone.utc).isoformat()
-            player_db[self.user_id_str]["dm_sent"] = False
-            player_db[self.user_id_str]["dm_blocked"] = False
-            player_db[self.user_id_str]["countdown_start"] = None
-            save_data(player_db)
+        player_db[self.user_id_str]["status"] = "green"
+        player_db[self.user_id_str]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        player_db[self.user_id_str]["dm_sent"] = False
+        player_db[self.user_id_str]["dm_blocked"] = False
+        player_db[self.user_id_str]["countdown_start"] = None
+        player_db[self.user_id_str]["dm_message_id"] = None
+        save_data(player_db)
 
         await interaction.response.send_message("✅ ระบบได้ทำการเก็บเซฟต่อให้เรียบร้อยแล้วครับ ถ้าต้องการใช้บริการเช่าเกม ICE Cloud Gaming พร้อมต้อนรับเสมอครับ!", ephemeral=True)
 
     @discord.ui.button(label="🗑️ ไม่ต้องเก็บไว้", style=discord.ButtonStyle.danger, custom_id="dm_delete_file")
     async def delete_file(self, interaction: discord.Interaction, button: Button):
+        # ⚡ ป้องกันกรณีถูกลบ ID ออกจากระบบแล้ว หรือหมดเวลาแล้ว
+        if self.user_id_str not in player_db:
+            await interaction.response.send_message("❌ ข้อความนี้หมดอายุแล้ว หรือ Player ID ของคุณถูกลบออกจากระบบเรียบร้อยแล้วครับ", ephemeral=True)
+            return
+
         for item in self.children:
             item.disabled = True
         await interaction.message.edit(view=self)
 
-        if self.user_id_str in player_db:
-            pid = player_db[self.user_id_str].get("player_id", "ไม่ทราบ")
-            guild = bot.guilds[0]
-            alert_channel = guild.get_channel(ALERT_CHANNEL_ID)
-            if alert_channel:
-                await alert_channel.send(f"🚨 **แจ้งเตือนจากลูกค้า:** ลูกค้า <@{self.user_id_str}> (Player ID: `{pid}`) กดเลือก **'ไม่ต้องเก็บไฟล์เซฟไว้'** แอดมินสามารถดำเนินการลบไฟล์ได้เลยครับ!")
+        info = player_db[self.user_id_str]
+        pid = info.get("player_id", "ไม่ทราบ") if isinstance(info, dict) else str(info)
+        guild = bot.guilds[0]
+        alert_channel = guild.get_channel(ALERT_CHANNEL_ID)
+        if alert_channel:
+            await alert_channel.send(f"🚨 **แจ้งเตือนจากลูกค้า:** ลูกค้า <@{self.user_id_str}> (Player ID: `{pid}`) กดเลือก **'ไม่ต้องเก็บไฟล์เซฟไว้'** แอดมินสามารถดำเนินการลบไฟล์ได้เลยครับ!")
 
         await interaction.response.send_message("เข้าใจแล้วครับ ไว้โอกาสหน้ามาใช้บริการเช่าเกมได้นะครับ ICE Cloud Gaming พร้อมต้อนรับครับ!", ephemeral=True)
 
@@ -262,6 +290,7 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
             "status": "green",
             "dm_sent": False,
             "dm_blocked": False,
+            "dm_message_id": None,
             "countdown_start": None
         }
         save_data(player_db)
@@ -581,6 +610,7 @@ async def background_status_checker():
 
         if status == "green" and elapsed >= YELLOW_THRESHOLD and not dm_sent:
             try:
+                # ⚡ เพิ่มข้อความอธิบายการลบข้อความท้าย Embed
                 embed_dm = discord.Embed(
                     title="🔔 แจ้งเตือนสถานะการใช้งาน ICE Cloud Gaming",
                     description=(
@@ -588,17 +618,18 @@ async def background_status_checker():
                         "(ขอให้ลูกค้าตอบตามความจริง)\n\n"
                         "หากยังต้องการให้เก็บไฟล์เซฟไว้อยู่ กรุณาเลือกคำสั่งข้างล่างนี้:\n"
                         "• **เก็บไว้ก่อน**\n"
-                        "• **ไม่ต้องเก็บไว้**"
+                        "• **ไม่ต้องเก็บไว้**\n\n"
+                        "⚠️ *หมายเหตุ: หากไม่มีการตอบกลับภายในเวลาที่กำหนด ข้อความแจ้งเตือนนี้จะถูกลบออก และระบบจะดำเนินการตามขั้นตอนถัดไปโดยอัตโนมัติ*"
                     ),
                     color=discord.Color.gold()
                 )
 
-                # ⚡ แก้จุดไส้ไก่โผล่: ใส่ embed=embed_dm เพื่อส่งการ์ดให้อ่านได้สวยงามใน DM
-                await member.send(embed=embed_dm, view=DMResponseView(user_id_str))
+                sent_msg = await member.send(embed=embed_dm, view=DMResponseView(user_id_str))
                 
                 info["status"] = "yellow"
                 info["dm_sent"] = True
                 info["dm_blocked"] = False
+                info["dm_message_id"] = sent_msg.id # ⚡ บันทึก ID ของข้อความ DM ไว้ใช้สั่งลบ
                 save_data(player_db)
                 
             except discord.Forbidden:
@@ -630,6 +661,12 @@ async def background_status_checker():
                         f"🚨 **แจ้งเตือนหมดเวลาตอบกลับ:** สมาชิก {member.mention} (Player ID: `{info.get('player_id')}`) "
                         "ไม่ตอบกลับการแจ้งเตือนภายในกำหนดเวลา ครบกำหนดลบไฟล์เซฟแล้วครับแอดมิน!"
                     )
+                
+                # ⚡ สั่งลบข้อความ DM ของลูกค้าทิ้งทันทีเมื่อหมดเวลานับถอยหลัง
+                dm_msg_id = info.get("dm_message_id")
+                if dm_msg_id:
+                    bot.loop.create_task(try_delete_dm_message(user_id_str, dm_msg_id))
+
                 info["status"] = "expired"
                 save_data(player_db)
 
@@ -660,6 +697,7 @@ async def sync_data_from_channel():
                                 "status": "green",
                                 "dm_sent": False,
                                 "dm_blocked": False,
+                                "dm_message_id": None,
                                 "countdown_start": None
                             }
                     except Exception:
@@ -742,7 +780,7 @@ async def on_member_remove(member: discord.Member):
 
 # --- 10. Slash Commands (คำสั่งรหัส /) ---
 
-# 10.1 คำสั่งลบ Player ID รายบุคคล
+# 10.1 คำสั่งลบ Player ID รายบุคคล (ลบฐานข้อมูล + ลบการ์ด Log + ลบข้อความ DM ที่ค้าง)
 @bot.tree.command(name="delete_id", description="ลบข้อมูล Player ID ของสมาชิกรายบุคคล (เฉพาะแอดมิน)")
 @app_commands.describe(
     member1="เลือกสมาชิกคนที่ 1 ที่ต้องการลบ (หรือพิมพ์ค้นหา)",
@@ -795,6 +833,11 @@ async def delete_user_id(
                 processed_uids.add(target_uid)
                 info = player_db[target_uid]
                 pid = info.get("player_id", "ไม่ทราบ") if isinstance(info, dict) else str(info)
+                
+                # ⚡ ลบข้อความ DM ของลูกค้ารายนี้ทันทีหากมีข้อความค้างอยู่
+                if isinstance(info, dict) and info.get("dm_message_id"):
+                    bot.loop.create_task(try_delete_dm_message(target_uid, info.get("dm_message_id")))
+
                 mem = guild.get_member(int(target_uid)) if guild else None
                 mention_str = mem.mention if mem else f"<@{target_uid}>"
                 deleted_text_list.append(f"{mention_str} (Player ID: `{pid}`)")
