@@ -45,6 +45,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- ID ค่าคงที่ของระบบ ---
+GUILD_ID = 1524627599416889397            # ID เซิร์ฟเวอร์ ICE Cloud Gaming
 LOG_CHANNEL_ID = 1524639966162845787      # ช่องบันทึกข้อมูลลูกค้า (เก็บเฉพาะการ์ดบันทึก ID)
 ALERT_CHANNEL_ID = 1535506088152010783    # ช่องแจ้งเตือน (รับแจ้งเตือนลบไฟล์ / แจ้งเตือนจาก DM)
 WELCOME_CHANNEL_ID = 1524635764556697680  # ช่องยินดีต้อนรับ
@@ -96,40 +97,6 @@ def save_data(data):
         json.dump(clean_data, f, ensure_ascii=False, indent=4)
 
 player_db = load_data()
-
-# --- ฟังก์ชันช่วย Autocomplete ดึงรายชื่อคนที่มี Player ID มาขึ้นเป็นเมนูค้นหาโดยตรง ---
-async def player_id_autocomplete(
-    interaction: discord.Interaction,
-    current: str
-) -> list[app_commands.Choice[str]]:
-    choices = []
-    
-    for user_id_str, info in player_db.items():
-        pid = info.get("player_id", "-")
-        user_id_int = int(user_id_str)
-        
-        member = interaction.guild.get_member(user_id_int) if interaction.guild else None
-        user = bot.get_user(user_id_int)
-
-        if member:
-            display_name = member.display_name
-        elif user:
-            display_name = user.name
-        else:
-            display_name = f"ID: {user_id_str}"
-
-        label = f"👤 {display_name} | Player ID: {pid}"
-        if len(label) > 100:
-            label = label[:97] + "..."
-
-        search_target = f"{display_name} {pid} {user_id_str}".lower()
-        if not current or current.lower() in search_target:
-            choices.append(app_commands.Choice(name=label, value=user_id_str))
-
-        if len(choices) >= 25:
-            break
-
-    return choices
 
 # --- ฟังก์ชันช่วยคำนวณเวลาอยู่ในดิสคอร์ด ---
 def get_time_string(joined_at):
@@ -659,16 +626,12 @@ async def on_ready():
     bot.add_view(CheckIDInTicketView())
     bot.add_view(HasIDToRentView())
     
-    for guild in bot.guilds:
-        try:
-            await guild.chunk()
-            print(f"✅ โหลดข้อมูลสมาชิกในเซิร์ฟเวอร์ {guild.name} ครบทุกคนแล้ว ({len(guild.members)} คน)")
-        except Exception as e:
-            print(f"⚠️ ไม่สามารถ Chunk สมาชิกใน {guild.name} ได้: {e}")
-
+    # ⚡ Sync คำสั่งตรงไปยัง Guild ทันที 0 วินาที ไม่ต้องรอ Global Cache
+    guild_obj = discord.Object(id=GUILD_ID)
+    bot.tree.copy_global_to(guild=guild_obj)
     try:
-        synced = await bot.tree.sync()
-        print(f"✅ Sync Slash Commands เรียบร้อยแล้ว จำนวน {len(synced)} คำสั่ง")
+        synced = await bot.tree.sync(guild=guild_obj)
+        print(f"✅ Sync Slash Commands เข้าเซิร์ฟเวอร์เรียบร้อยแล้ว จำนวน {len(synced)} คำสั่ง")
     except Exception as e:
         print(f"❌ เกิดข้อผิดพลาดในการ Sync Slash Commands: {e}")
 
@@ -694,7 +657,7 @@ async def on_member_update(before: discord.Member, after: discord.Member):
             if after.avatar:
                 embed.set_thumbnail(url=after.avatar.url)
             else:
-                embed.set_thumbnail(url=after.default_avatar.url)
+                embed.set_thumbnail(url=after.defaultavatar.url)
             embed.set_footer(text="ICE Cloud Gaming Community", icon_url=after.guild.icon.url if after.guild.icon else None)
             await welcome_channel.send(embed=embed)
 
@@ -724,64 +687,42 @@ async def on_member_remove(member: discord.Member):
 
 # --- 10. Slash Commands (คำสั่งรหัส /) ---
 
-# 10.1 คำสั่งลบ Player ID รายบุคคล (พร้อมระบบ Autocomplete เด้งรายชื่อให้อัตโนมัติ)
+# 10.1 คำสั่งลบ Player ID รายบุคคล (เสถียรที่สุด ใช้ระบบเลือกสมาชิกของ Discord โดยตรง)
 @bot.tree.command(name="delete_id", description="ลบข้อมูล Player ID ของสมาชิกรายบุคคล (เฉพาะแอดมิน)")
 @app_commands.describe(
-    member1="เลือกสมาชิกคนแรกที่ต้องการลบ (หรือพิมพ์ค้นหา)",
+    member1="เลือกสมาชิกคนที่ 1 ที่ต้องการลบ ID",
     member2="เลือกสมาชิกคนที่ 2 (ถ้ามี)",
     member3="เลือกสมาชิกคนที่ 3 (ถ้ามี)",
     member4="เลือกสมาชิกคนที่ 4 (ถ้ามี)",
     member5="เลือกสมาชิกคนที่ 5 (ถ้ามี)"
 )
-@app_commands.autocomplete(
-    member1=player_id_autocomplete,
-    member2=player_id_autocomplete,
-    member3=player_id_autocomplete,
-    member4=player_id_autocomplete,
-    member5=player_id_autocomplete
-)
 @app_commands.checks.has_permissions(administrator=True)
 async def delete_user_id(
     interaction: discord.Interaction,
-    member1: str,
-    member2: str = None,
-    member3: str = None,
-    member4: str = None,
-    member5: str = None
+    member1: discord.Member,
+    member2: discord.Member = None,
+    member3: discord.Member = None,
+    member4: discord.Member = None,
+    member5: discord.Member = None
 ):
-    raw_inputs = [m for m in [member1, member2, member3, member4, member5] if m is not None]
-    guild = interaction.guild
+    target_members = [m for m in [member1, member2, member3, member4, member5] if m is not None]
+    
+    unique_members = []
+    for m in target_members:
+        if m not in unique_members:
+            unique_members.append(m)
 
     deleted_text_list = []
     not_found_text_list = []
-    processed_uids = set()
 
-    for inp in raw_inputs:
-        clean_inp = inp.strip("<@!> ")
-        target_uid = None
-
-        if clean_inp.isdigit() and clean_inp in player_db:
-            target_uid = clean_inp
+    for member in unique_members:
+        user_id_str = str(member.id)
+        if user_id_str in player_db:
+            pid = player_db[user_id_str].get("player_id", "ไม่ทราบ")
+            deleted_text_list.append(f"{member.mention} (Player ID: `{pid}`)")
+            del player_db[user_id_str]
         else:
-            for uid, info in player_db.items():
-                pid = info.get("player_id", "")
-                mem = guild.get_member(int(uid)) if guild else None
-                m_name = mem.display_name if mem else ""
-                
-                if inp == pid or inp.lower() == m_name.lower():
-                    target_uid = uid
-                    break
-
-        if target_uid:
-            if target_uid not in processed_uids:
-                processed_uids.add(target_uid)
-                pid = player_db[target_uid].get("player_id", "ไม่ทราบ")
-                mem = guild.get_member(int(target_uid)) if guild else None
-                mention_str = mem.mention if mem else f"<@{target_uid}>"
-                deleted_text_list.append(f"{mention_str} (Player ID: `{pid}`)")
-                del player_db[target_uid]
-        else:
-            not_found_text_list.append(f"`{inp}`")
+            not_found_text_list.append(f"{member.mention}")
 
     save_data(player_db)
 
@@ -789,7 +730,7 @@ async def delete_user_id(
         result_str = ", ".join(deleted_text_list)
         msg = f"ระบบได้ลบPlayer ID ของ {result_str} ให้แล้ว"
         if not_found_text_list:
-            msg += f"\n(หมายเหตุ: {', '.join(not_found_text_list)} ไม่พบในระบบ)"
+            msg += f"\n(หมายเหตุ: {', '.join(not_found_text_list)} ไม่มี Player ID ในระบบอยู่แล้ว)"
         await interaction.response.send_message(msg)
     else:
         await interaction.response.send_message("❌ ไม่พบข้อมูล Player ID ของสมาชิกที่เลือกในระบบครับ", ephemeral=True)
