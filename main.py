@@ -108,9 +108,19 @@ async def player_id_autocomplete(
 
     for user_id_str, info in player_db.items():
         pid = info.get("player_id", "-")
-        member = interaction.guild.get_member(int(user_id_str))
+        user_id_int = int(user_id_str)
         
-        display_name = member.display_name if member else f"ID: {user_id_str}"
+        # ⚡ ดึงข้อมูลจาก Cache เซิร์ฟเวอร์ หากไม่เจอให้ดึงจากสถิติผู้ใช้ของบอท
+        member = interaction.guild.get_member(user_id_int)
+        user = bot.get_user(user_id_int)
+
+        if member:
+            display_name = member.display_name
+        elif user:
+            display_name = user.name
+        else:
+            display_name = f"ID: {user_id_str}"
+
         label = f"👤 {display_name} | Player ID: {pid}"
         if len(label) > 100:
             label = label[:97] + "..."
@@ -659,6 +669,14 @@ async def on_ready():
     bot.add_view(CheckIDInTicketView())
     bot.add_view(HasIDToRentView())
     
+    # ⚡ โหลดดึงรายชื่อสมาชิกทุกคนในเซิร์ฟเวอร์มาเก็บไว้ใน Cache (แก้ปัญหาช่อง Private หาคนไม่เจอ)
+    for guild in bot.guilds:
+        try:
+            await guild.chunk()
+            print(f"✅ โหลดข้อมูลสมาชิกในเซิร์ฟเวอร์ {guild.name} ครบทุกคนแล้ว ({len(guild.members)} คน)")
+        except Exception as e:
+            print(f"⚠️ ไม่สามารถ Chunk สมาชิกใน {guild.name} ได้: {e}")
+
     try:
         synced = await bot.tree.sync()
         print(f"✅ Sync Slash Commands เรียบร้อยแล้ว จำนวน {len(synced)} คำสั่ง")
