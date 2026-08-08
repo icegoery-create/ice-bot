@@ -98,37 +98,51 @@ def save_data(data):
 
 player_db = load_data()
 
-# --- ฟังก์ชัน Autocomplete ดึงรายชื่อจาก player_db โดยตรง (ทำงานได้ทุกช่อง แม้จะเป็น Private) ---
+# --- ฟังก์ชัน Autocomplete ป้องกัน Error ปลอดภัย 100% ---
 async def player_id_autocomplete(
     interaction: discord.Interaction,
     current: str
 ) -> list[app_commands.Choice[str]]:
     choices = []
-    
-    for user_id_str, info in player_db.items():
-        pid = info.get("player_id", "-")
-        user_id_int = int(user_id_str)
+    try:
+        # สำเนาข้อมูลออกมาป้องกัน RuntimeError ตอนไฟล์ถูกอัปเดตกลางคัน
+        db_items = list(player_db.items())
         
-        member = interaction.guild.get_member(user_id_int) if interaction.guild else None
-        user = bot.get_user(user_id_int)
+        for user_id_str, info in db_items:
+            # ดึง Player ID ป้องกัน crash ทั้งแบบ dict และแบบ string
+            if isinstance(info, dict):
+                pid = info.get("player_id", "-")
+            else:
+                pid = str(info)
 
-        if member:
-            display_name = member.display_name
-        elif user:
-            display_name = user.name
-        else:
-            display_name = f"ID: {user_id_str}"
+            try:
+                user_id_int = int(user_id_str)
+            except ValueError:
+                continue
 
-        label = f"👤 {display_name} | Player ID: {pid}"
-        if len(label) > 100:
-            label = label[:97] + "..."
+            # ดึงชื่อสมาชิก
+            member = interaction.guild.get_member(user_id_int) if interaction.guild else None
+            user = bot.get_user(user_id_int)
 
-        search_target = f"{display_name} {pid} {user_id_str}".lower()
-        if not current or current.lower() in search_target:
-            choices.append(app_commands.Choice(name=label, value=user_id_str))
+            if member:
+                display_name = member.display_name
+            elif user:
+                display_name = user.name
+            else:
+                display_name = f"ID: {user_id_str}"
 
-        if len(choices) >= 25:
-            break
+            label = f"👤 {display_name} | Player ID: {pid}"
+            if len(label) > 100:
+                label = label[:97] + "..."
+
+            search_target = f"{display_name} {pid} {user_id_str}".lower()
+            if not current or current.lower() in search_target:
+                choices.append(app_commands.Choice(name=label, value=user_id_str))
+
+            if len(choices) >= 25:
+                break
+    except Exception as e:
+        print(f"⚠️ Autocomplete Error Handled: {e}")
 
     return choices
 
@@ -235,7 +249,8 @@ class PlayerIDModal(Modal, title="กรอก Player ID ให้ลูกค�
         user_id_str = str(self.target_user_id)
         
         for existing_uid, info in player_db.items():
-            if existing_uid != user_id_str and info.get("player_id") == pid:
+            existing_pid = info.get("player_id") if isinstance(info, dict) else str(info)
+            if existing_uid != user_id_str and existing_pid == pid:
                 await interaction.response.send_message(
                     f"❌ **ข้อผิดพลาด (Player ID ซ้ำ!):**\n"
                     f"Player ID `{pid}` ถูกใช้งานไปแล้วโดยสมาชิก <@{existing_uid}>\n"
@@ -311,7 +326,8 @@ class CheckIDInTicketView(View):
         user_id = str(interaction.user.id)
         
         if user_id in player_db:
-            pid = player_db[user_id]["player_id"]
+            info = player_db[user_id]
+            pid = info.get("player_id", info) if isinstance(info, dict) else str(info)
             await interaction.response.send_message(f"🎮 **Player ID ของคุณคือ:** `{pid}`", ephemeral=True)
             
             embed = discord.Embed(
@@ -507,7 +523,8 @@ class OpenTicketView(View):
     async def check_my_id(self, interaction: discord.Interaction, button: Button):
         user_id = str(interaction.user.id)
         if user_id in player_db:
-            pid = player_db[user_id]["player_id"]
+            info = player_db[user_id]
+            pid = info.get("player_id", info) if isinstance(info, dict) else str(info)
             await interaction.response.send_message(f"🎮 **Player ID ของคุณคือ:** `{pid}`", ephemeral=True)
         else:
             await interaction.response.send_message("❌ คุณลูกค้ายังไม่ได้ขอ Player ID จากเจ้าของร้าน กรุณาไปขอ Player ID ก่อนครับ!", ephemeral=True)
@@ -544,6 +561,9 @@ async def background_status_checker():
     now = datetime.now(timezone.utc)
 
     for user_id_str, info in list(player_db.items()):
+        if not isinstance(info, dict):
+            continue
+
         member = guild.get_member(int(user_id_str))
         if not member:
             continue
@@ -662,7 +682,7 @@ async def on_ready():
     
     guild_obj = discord.Object(id=GUILD_ID)
     
-    # ⚡ 1. ล้างคำสั่ง Global เก่าทิ้งทั้งหมด เพื่อแก้ปัญหาคำสั่งเบิ้ลซ้ำ 2 อัน
+    # ⚡ 1. ล้างคำสั่ง Global เก่าทิ้งทั้งหมด เพื่อแก้ปัญหาคำสั่งเบิ้ลซ้ำ
     bot.tree.clear_commands(guild=None)
     await bot.tree.sync(guild=None)
     
@@ -706,7 +726,8 @@ async def on_member_remove(member: discord.Member):
     user_id_str = str(member.id)
     player_id = "❌ ไม่มีข้อมูล / ไม่เคยขอ ID"
     if user_id_str in player_db:
-        player_id = player_db[user_id_str].get("player_id", "❌ ไม่มีข้อมูล")
+        info = player_db[user_id_str]
+        player_id = info.get("player_id", info) if isinstance(info, dict) else str(info)
 
     embed = discord.Embed(
         title="🚪 สมาชิกออกจากเซิร์ฟเวอร์!",
@@ -763,7 +784,7 @@ async def delete_user_id(
             target_uid = clean_inp
         else:
             for uid, info in player_db.items():
-                pid = info.get("player_id", "")
+                pid = info.get("player_id", "") if isinstance(info, dict) else str(info)
                 mem = guild.get_member(int(uid)) if guild else None
                 m_name = mem.display_name if mem else ""
                 
@@ -774,7 +795,8 @@ async def delete_user_id(
         if target_uid:
             if target_uid not in processed_uids:
                 processed_uids.add(target_uid)
-                pid = player_db[target_uid].get("player_id", "ไม่ทราบ")
+                info = player_db[target_uid]
+                pid = info.get("player_id", "ไม่ทราบ") if isinstance(info, dict) else str(info)
                 mem = guild.get_member(int(target_uid)) if guild else None
                 mention_str = mem.mention if mem else f"<@{target_uid}>"
                 deleted_text_list.append(f"{mention_str} (Player ID: `{pid}`)")
@@ -825,9 +847,14 @@ async def export_id_list(interaction: discord.Interaction):
             
             if uid in player_db:
                 info = player_db[uid]
-                status = info.get("status", "green")
-                pid = info.get("player_id", "-")
-                status_dur = get_status_duration_string(info.get("updated_at"))
+                if isinstance(info, dict):
+                    status = info.get("status", "green")
+                    pid = info.get("player_id", "-")
+                    status_dur = get_status_duration_string(info.get("updated_at"))
+                else:
+                    status = "green"
+                    pid = str(info)
+                    status_dur = "ไม่ทราบข้อมูล"
                 
                 line = f"[{member.display_name}] | ID: {pid} | อยู่ในสถานะนี้: {status_dur} | อยู่ในดิส: {time_spent}"
                 
@@ -862,9 +889,14 @@ async def check_user(interaction: discord.Interaction, member: discord.Member):
     
     if user_id_str in player_db:
         info = player_db[user_id_str]
-        pid = info.get("player_id", "-")
-        status = info.get("status", "green")
-        status_dur = get_status_duration_string(info.get("updated_at"))
+        if isinstance(info, dict):
+            pid = info.get("player_id", "-")
+            status = info.get("status", "green")
+            status_dur = get_status_duration_string(info.get("updated_at"))
+        else:
+            pid = str(info)
+            status = "green"
+            status_dur = "ไม่ทราบข้อมูล"
     else:
         pid = "❌ ไม่มีข้อมูล / ไม่เคยขอ ID"
         status = "gray (สีเทา)"
