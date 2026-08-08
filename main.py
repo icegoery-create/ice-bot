@@ -680,13 +680,10 @@ async def on_ready():
     guild_obj = discord.Object(id=GUILD_ID)
     
     try:
-        # ⚡ 1. ล้างคำสั่ง Global เก่าบนดิสคอร์ดทิ้งเพื่อลบตัวเบิ้ล
         await bot.http.bulk_upsert_global_commands(bot.application_id, [])
-        
-        # ⚡ 2. คัดลอกและ Sync คำสั่งเข้าเซิร์ฟเวอร์โดยตรงทันที
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
-        print(f"✅ ล้างคำสั่งเบิ้ลสำเร็จ! Sync คำสั่งเข้าเซิร์ฟเวอร์เรียบร้อย จำนวน {len(synced)} คำสั่ง")
+        print(f"✅ Sync คำสั่งเข้าเซิร์ฟเวอร์เรียบร้อย จำนวน {len(synced)} คำสั่ง")
     except Exception as e:
         print(f"❌ เกิดข้อผิดพลาดในการ Sync Slash Commands: {e}")
 
@@ -743,7 +740,7 @@ async def on_member_remove(member: discord.Member):
 
 # --- 10. Slash Commands (คำสั่งรหัส /) ---
 
-# 10.1 คำสั่งลบ Player ID รายบุคคล (พิมพ์ย่อปุ๊บ ค้นหาเจอทั้งในห้องส่วนตัวและห้องปกติ)
+# 10.1 คำสั่งลบ Player ID รายบุคคล (ลบข้อมูล + ลบการ์ด Log ในช่องบันทึกข้อมูลเฉพาะของคนที่ถูกลบ)
 @bot.tree.command(name="delete_id", description="ลบข้อมูล Player ID ของสมาชิกรายบุคคล (เฉพาะแอดมิน)")
 @app_commands.describe(
     member1="เลือกสมาชิกคนที่ 1 ที่ต้องการลบ (หรือพิมพ์ค้นหา)",
@@ -805,6 +802,25 @@ async def delete_user_id(
 
     save_data(player_db)
 
+    # ⚡ สแกนลบการ์ด Log ในช่อง #บันทึกข้อมูลลูกค้า เฉพาะของคนที่ถูกลบ
+    if processed_uids and guild:
+        log_channel = guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            try:
+                async for msg in log_channel.history(limit=200):
+                    if msg.embeds:
+                        for embed in msg.embeds:
+                            if embed.description:
+                                for uid in processed_uids:
+                                    if uid in embed.description:
+                                        try:
+                                            await msg.delete()
+                                        except Exception:
+                                            pass
+                                        break
+            except Exception as e:
+                print(f"⚠️ Error deleting log embeds: {e}")
+
     if deleted_text_list:
         result_str = ", ".join(deleted_text_list)
         msg = f"ระบบได้ลบPlayer ID ของ {result_str} ให้แล้ว"
@@ -814,7 +830,23 @@ async def delete_user_id(
     else:
         await interaction.response.send_message("❌ ไม่พบข้อมูล Player ID ของสมาชิกที่เลือกในระบบครับ", ephemeral=True)
 
-# 10.2 คำสั่งส่งไฟล์สรุปรายงานสถานะ
+# 10.2 คำสั่งลบข้อความในช่องปัจจุบัน (/clear)
+@bot.tree.command(name="clear", description="ลบข้อความในช่องปัจจุบันตามจำนวนที่กำหนด (เฉพาะแอดมิน)")
+@app_commands.describe(amount="จำนวนข้อความที่ต้องการลบ (เช่น 10, 50, 100)")
+@app_commands.checks.has_permissions(administrator=True)
+async def clear_messages(interaction: discord.Interaction, amount: int):
+    if amount <= 0:
+        await interaction.response.send_message("❌ กรุณาระบุจำนวนข้อความที่มากกว่า 0 ครับ", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        deleted = await interaction.channel.purge(limit=amount)
+        await interaction.followup.send(f"🧹 ลบข้อความไปทั้งหมด `{len(deleted)}` ข้อความเรียบร้อยแล้วครับ!", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการลบข้อความ: {e}", ephemeral=True)
+
+# 10.3 คำสั่งส่งไฟล์สรุปรายงานสถานะ
 @bot.tree.command(name="idlist", description="ส่งไฟล์สรุปรายงานสถานะสมาชิกทั้งหมด (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def export_id_list(interaction: discord.Interaction):
@@ -878,7 +910,7 @@ async def export_id_list(interaction: discord.Interaction):
     if os.path.exists(file_path):
         os.remove(file_path)
 
-# 10.3 คำสั่งเช็กข้อมูลผู้ใช้รายคน
+# 10.4 คำสั่งเช็กข้อมูลผู้ใช้รายคน
 @bot.tree.command(name="checkuser", description="ตรวจสอบข้อมูล Player ID และสถานะของสมาชิก (เฉพาะแอดมิน)")
 @app_commands.describe(member="เลือกสมาชิกที่ต้องการตรวจสอบ")
 @app_commands.checks.has_permissions(administrator=True)
@@ -910,7 +942,7 @@ async def check_user(interaction: discord.Interaction, member: discord.Member):
     
     await interaction.response.send_message(embed=embed)
 
-# 10.4 คำสั่งส่งแผงเปิดตั๋ว
+# 10.5 คำสั่งส่งแผงเปิดตั๋ว
 @bot.tree.command(name="ticket", description="ส่งแผงข้อความกดเปิดตั๋วเช่าคอม/เช่าเกม (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket(interaction: discord.Interaction):
@@ -925,7 +957,7 @@ async def ticket(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงกดตั๋วสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=OpenTicketView())
 
-# 10.5 คำสั่งส่งแผงยืนยันตัวตนรับยศ
+# 10.6 คำสั่งส่งแผงยืนยันตัวตนรับยศ
 @bot.tree.command(name="setupverify", description="ส่งแผงข้อความกดยืนยันตัวตนรับยศลูกค้า (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def setupverify(interaction: discord.Interaction):
@@ -937,7 +969,7 @@ async def setupverify(interaction: discord.Interaction):
     await interaction.response.send_message("ส่งแผงยืนยันตัวตนสำเร็จ!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=VerifyView())
 
-# 10.6 คำสั่งรีเซ็ตข้อมูลทั้งหมด
+# 10.7 คำสั่งรีเซ็ตข้อมูลทั้งหมด
 @bot.tree.command(name="reset_id", description="รีเซ็ตข้อมูล Player ID ทั้งหมดในระบบ (เฉพาะแอดมิน)")
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_data(interaction: discord.Interaction):
